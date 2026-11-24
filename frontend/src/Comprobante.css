@@ -1,0 +1,79 @@
+.comprobante-dialogo {
+  border: 1px solid #c7a45b;
+  border-radius: 14px;
+  background: #f8f5ec;
+  color: #33291e;
+  width: min(94vw, 540px);
+  margin: auto;
+  max-height: 92dvh;
+  padding: clamp(10px, 4vw, 24px);
+}
+.comprobante-dialogo::backdrop { background: #33291e80; }
+.comprobante-controles, .comprobante-correo {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 8px;
+}
+.comprobante-controles a, .comprobante-dialogo button {
+  border: 1px solid #c7a45b;
+  background: #fff;
+  color: #65432a;
+  border-radius: 6px;
+  min-height: 42px;
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 12px;
+  font-size: .89rem;
+  font-weight: 650;
+}
+.comprobante-ticket {
+  margin: 16px auto;
+  width: min(100%, 360px);
+  padding: 20px;
+  background: white;
+  font: 0.85rem/1.45 Arial, sans-serif;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.comprobante-ticket header, .comprobante-ticket footer { text-align: center; }
+.comprobante-ticket h2 {
+  border-top: 1px solid #c7a45b;
+  padding-top: 8px;
+  font: bold 1.15rem Georgia, serif;
+  text-transform: uppercase;
+  color: #65432a;
+}
+.comprobante-ticket h3 {
+  border-top: 1px solid #c7a45b;
+  padding-top: 8px;
+  font-size: .76rem;
+  text-transform: uppercase;
+  color: #65432a;
+}
+.comprobante-ticket dl {
+  display: grid;
+  grid-template-columns: 1fr 1.3fr;
+  gap: 4px 12px;
+  margin-block: 10px;
+}
+.comprobante-ticket dd { margin: 0; text-align: right; }
+.comprobante-ticket ul { padding: 0; list-style: none; }
+.comprobante-ticket li { padding-block: 6px; border-bottom: 1px solid #e7dfd1; break-inside: avoid; }
+.comprobante-ticket li div { display: flex; justify-content: space-between; gap: 10px; }
+.comprobante-ticket li div span:last-child { text-align: right; flex: 0 1 auto; }
+.comprobante-ticket small { display: block; color: #665d52; }
+.comprobante-total { color: #65432a; font-size: 1.12rem; font-weight: bold; }
+.comprobante-pago { display: contents; }
+.comprobante-ticket footer { border-top: 1px solid #c7a45b; padding-top: 10px; }
+.comprobante-correo label { display: grid; flex: 1 1 180px; gap: 4px; }
+.comprobante-correo input { padding: 8px; border: 1px solid #c7a45b; border-radius: 6px; min-width: 0; }
+.comprobante-correo p { width: 100%; }
+
+@media print {
+  body:has(.comprobante-dialogo[open]) > :not(.comprobante-dialogo) { display: none !important; }
+  .comprobante-dialogo[open] { position: static; display: block; max-height: none; width: auto; padding: 0; margin: 0; border: 0; overflow: visible; background: white; }
+  .comprobante-dialogo::backdrop { display: none; }
+  .comprobante-controles, .comprobante-correo { display: none; }
+  .comprobante-ticket { width: min(100%, 80mm); margin: auto; padding: 3mm; color: #111; }
+}

@@ -1,0 +1,23 @@
+.inventario {
+  display: grid;
+  gap: 18px;
+}
+
+.inventario-filtros,
+.inventario-campos {
+  margin-block: 12px;
+}
+
+.inventario-campos {
+  border: 0;
+  padding: 0;
+  min-inline-size: 0;
+}
+
+.inventario .acciones-formulario {
+  align-items: center;
+}
+
+.inventario table td {
+  overflow-wrap: anywhere;
+}

@@ -1,0 +1,142 @@
+.ventas { display: grid; gap: clamp(14px, 1.4vw, 24px); }
+.ventas .panel { border-radius: 16px; }
+.ventas-encabezado { margin-bottom: 0; }
+.ventas button { min-height: 44px; }
+.ventas-pagos, .pos-venta-cabecera {
+  display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 14px;
+}
+.ventas a { color: var(--marron); font-weight: 650; text-underline-offset: .2em; }
+.ventas-volver-catalogo { align-items: center; min-height: 44px; }
+.ventas .ventas-turno {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 9px 18px;
+  padding-block: 12px; background: linear-gradient(95deg, #f7f1e8, #fff 65%);
+}
+
+.ventas-turno .ventas-campos { margin: 0; flex: 0 1 280px; }
+
+.ventas-incertidumbre { border-inline-start: 4px solid #ad7b35; }
+.ventas-incertidumbre button { margin-top: 10px; }
+.ventas-enlace-carrito, .ventas a.ventas-volver-catalogo { display: none; }
+
+.pos-layout { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(360px, 1fr); gap: clamp(12px, 1.4vw, 24px); align-items: start; }
+.pos-catalogo, .pos-venta, #ventas-historial { scroll-margin-top: 16px; }
+.pos-filtros { margin-block: 14px 10px; grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); }
+.ventas :is(input, select) { min-height: 44px; }
+.pos-vistas { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+.pos-vistas button[aria-pressed=true] { background: #f0e7d8; color: #684a1f; border-color: #cbb18a; }
+.pos-tarjetas { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 175px), 1fr)); gap: 12px; }
+.pos-tarjeta {
+  min-width: 0; display: grid; grid-template-rows: auto 1fr; background: var(--blanco);
+  border: 1px solid var(--borde); border-radius: 13px; overflow: hidden; box-shadow: var(--sombra);
+}
+.pos-foto { height: clamp(110px, 10vw, 168px); background: #f6f1e9; position: relative; display: grid; place-items: center; overflow: hidden; }
+.pos-foto img { position: absolute; inset: 0; display: block; width: 100%; height: 100%; object-fit: contain; }
+.pos-tarjeta-contenido { display: grid; grid-template-rows: 1fr auto auto auto; gap: 5px; padding: 11px; }
+.pos-tarjeta-contenido h3 { font-size: 1rem; line-height: 1.25; margin: 0; overflow-wrap: anywhere; }
+.pos-precio { font-size: 1.04rem; color: var(--tinta); font-variant-numeric: tabular-nums; }
+.pos-precio span, .pos-stock { color: var(--secundario); font-size: .8rem; }
+small.pos-stock { display: block; }
+.pos-agregar { width: 100%; margin-top: 4px; background: #f3ede4; color: #26374f; border-color: #e1d6c6; }
+.pos-agregar:hover:not(:disabled) { background: #eae0d1; }
+.pos-saldo { position: absolute; inset: 7px 7px auto auto; padding: 3px 7px; border-radius: 6px; background: #fbefcc; color: #614717; font-size: .74rem; font-weight: 650; }
+.pos-saldo.agotado { background: var(--fondo-peligro); color: var(--peligro); }
+.pos-vacio { color: var(--secundario); background: var(--crema); border: 1px dashed var(--borde); border-radius: 9px; padding: 13px; overflow-wrap: anywhere; }
+.pos-venta { position: sticky; top: 12px; max-height: calc(100dvh - 24px); overflow: auto; }
+.ventas-campos { border: 0; margin: 12px 0; padding: 0; min-inline-size: 0; }
+.ventas-campos legend { font-weight: 700; color: var(--secundario); margin-bottom: 5px; }
+.ventas-fila {
+  align-items: end; margin-block: 9px; padding: 11px; background: #fbfaf7;
+  border: 1px solid var(--borde); border-radius: 10px; overflow-wrap: anywhere;
+}
+.pos-venta .ventas-fila { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.ventas-linea > span:first-child { align-self: center; }
+.ventas-linea button, .ventas-pago button { justify-self: end; }
+.ventas-subtotal small { display: block; color: var(--secundario); }
+.ventas-subtotal strong { font-variant-numeric: tabular-nums; }
+.ventas-cobro { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--borde); }
+.ventas-pagos { margin-bottom: 8px; }
+.ventas-pago { background: #f5f6f8; }
+.ventas-total { display: grid; gap: 12px; border: 1px solid #e5ded2; padding: 14px; background: #f8f4ed; border-radius: 12px; margin-top: 12px; }
+.ventas-total dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 12px; }
+.ventas-total dl div:first-child { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 12px; }
+.ventas-total dt { font-size: .83rem; color: var(--secundario); }
+.ventas-total dd { font-weight: 700; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.ventas-total dl div:first-child dd { color: #18283f; font-size: clamp(1.6rem, 2.5vw, 2.35rem); line-height: 1.15; }
+.ventas-confirmacion { border-color: #cab18a; }
+.ventas-confirmacion p { margin-block: 7px; }
+
+
+@media (max-width: 920px) {
+  .pos-layout { grid-template-columns: minmax(0, 1fr); }
+  .pos-venta { position: static; max-height: none; overflow: visible; }
+  .ventas .ventas-enlace-carrito {
+    display: block; border-radius: 10px; padding: 12px; background: #26374f;
+    color: #fff; text-align: center; text-decoration: none;
+  }
+  .ventas a.ventas-volver-catalogo { display: inline-flex; }
+}
+@media (max-width: 480px) {
+  .pos-filtros { grid-template-columns: minmax(0, 1fr); }
+  .pos-tarjetas { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .pos-tarjeta-contenido { padding: 8px; }
+  .ventas .ventas-turno .ventas-campos { flex-basis: 100%; }
+}
+
+.ventas-vista-nueva:not([hidden]) { display: grid; gap: clamp(14px, 1.4vw, 24px); }
+.ventas .ventas-encabezado {
+  padding: clamp(18px, 2.5vw, 36px); border: 1px solid #ece2d4; border-radius: 16px;
+  background: linear-gradient(110deg, #fbf7f0, #f0e6d8);
+}
+.ventas-encabezado h1 { font-size: clamp(2.2rem, 4vw, 3.5rem); }
+.ventas-encabezado p { overflow-wrap: anywhere; }
+.ventas-boton-icono, .ventas-turno-titulo { display: inline-flex; align-items: center; gap: 8px; }
+.ventas-boton-icono svg, .ventas-icono svg { width: 19px; height: 19px; flex: none; }
+.ventas-icono {
+  display: inline-grid; place-items: center; width: 40px; height: 40px;
+  flex: none; border-radius: 12px; background: #f3e8d7; color: #805719;
+}
+.ventas-turno-titulo { margin-inline-end: auto; }
+.ventas-turno h2 { font-size: 1.15rem; }
+.ventas-turno > p:not(.error) { color: var(--secundario); }
+.pos-filtros, .ventas-filtros-historial {
+  margin-block: 14px 12px; padding: 12px;
+  border: 1px solid #ede6db; border-radius: 12px; background: #faf7f1;
+}
+.ventas-filtros-historial { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); }
+.pos-vistas button { border-radius: 999px; }
+.pos-tarjeta:hover, .pos-tarjeta:focus-within { border-color: #cbb18a; box-shadow: 0 6px 18px rgb(43 31 15 / 10%); }
+@media (prefers-reduced-motion: no-preference) {
+  .pos-tarjeta { transition: box-shadow .18s ease, border-color .18s ease; }
+}
+.pos-foto { height: auto; aspect-ratio: 4 / 3; background: radial-gradient(ellipse at 45% 35%, #fffaf1, #f2e8d9); }
+.pos-saldo { padding: 4px 9px; border-radius: 999px; }
+.pos-vacio {
+  display: grid; justify-items: center; gap: 5px; text-align: center;
+  border-color: #ded3c0; border-radius: 12px; padding: clamp(16px, 3vw, 28px);
+}
+.pos-vacio strong { color: var(--tinta); }
+.pos-vacio .ventas-icono { margin-bottom: 4px; }
+.ventas-total > button { font-weight: 700; }
+.ventas-historial .tabla-contenedor { border-radius: 12px; }
+.ventas-historial th { background: #f5efe6; }
+.ventas-historial :is(th, td) { padding: 12px 14px; }
+.ventas-historial tbody tr:nth-child(even) { background: #fcfaf6; }
+.ventas-historial tbody tr:hover { background: #f8f2e8; }
+.ventas-historial tbody tr:last-child td { border-bottom: 0; }
+.ventas-historial .formulario-producto { margin-top: 16px; border-radius: 12px; }
+.ventas-estado { padding: 12px 0; color: var(--secundario); }
+.ventas-importe-tabla { font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ventas-estado-venta {
+  display: inline-block; padding: 4px 10px; border-radius: 999px; font-size: .75rem;
+  font-weight: 700; background: #edf0f4; color: var(--tinta);
+}
+.ventas-estado-venta[data-estado="CONFIRMADA"] { background: var(--fondo-exito); color: var(--exito); }
+.ventas-estado-venta[data-estado="BORRADOR"] { background: #fbefcc; color: #614717; }
+.ventas-estado-venta[data-estado="ANULADA"] { background: var(--fondo-peligro); color: var(--peligro); }
+
+@media (max-width: 480px) {
+  .ventas-filtros-historial { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 350px) {
+  .pos-tarjetas, .pos-venta .ventas-fila { grid-template-columns: minmax(0, 1fr); }
+}

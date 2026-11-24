@@ -1,0 +1,29 @@
+﻿:root {
+  color-scheme: light;
+  --tinta: #1b2a43;
+  --marron: #705325;
+  --marron-fuerte: #26374f;
+  --dorado: #c7a45b;
+  --crema: #faf8f3;
+  --fondo: #fff;
+  --blanco: #fff;
+  --secundario: #5e6874;
+  --borde: #e7e4df;
+  --borde-control: #968a77;
+  --peligro: #8b342d;
+  --fondo-peligro: #f9eeec;
+  --exito: #345e46;
+  --fondo-exito: #edf4ee;
+  --espacio: 1rem;
+  --radio: 12px;
+  --radio-control: 8px;
+  --sombra: 0 4px 14px rgb(23 36 55 / 5%);
+  --fuente: "Segoe UI", system-ui, sans-serif;
+  --titular: Georgia, "Times New Roman", serif;
+}
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+body { font: .9375rem/1.5 var(--fuente); background: var(--fondo); color: var(--tinta); }
+input, select, textarea, button { font: inherit; }
+button, a { -webkit-tap-highlight-color: transparent; }
+:focus-visible { outline: 3px solid #976628; outline-offset: 3px; }
+

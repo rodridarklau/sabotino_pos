@@ -1,0 +1,83 @@
+.modulo { min-width: 0; }
+.modulo-pila:not([hidden]) { display: grid; align-content: start; gap: clamp(14px, 1.5vw, 22px); min-width: 0; }
+.modulo .modulo-cabecera {
+  margin: 0;
+  padding: clamp(16px, 2.5vw, 34px);
+  border: 1px solid #ece2d4;
+  border-radius: 17px;
+  background: linear-gradient(110deg, #fbf7f0, #f0e6d8);
+}
+.modulo-identidad { display: flex; align-items: flex-start; gap: clamp(10px, 1.4vw, 18px); min-width: 0; }
+.modulo-identidad h1 { font-size: clamp(1.85rem, 3.15vw, 3.1rem); overflow-wrap: anywhere; }
+.modulo-icono {
+  display: grid; place-items: center; flex: none;
+  width: clamp(36px, 4vw, 54px); aspect-ratio: 1;
+  border: 1px solid #ebdfcc; border-radius: 13px; background: #fcf8f0; color: #805719;
+}
+.modulo-icono svg { width: 22px; height: 22px; }
+.modulo :is(.panel, .compras-tarjeta, .reportes-panel) { border-radius: 16px; box-shadow: var(--sombra); }
+.modulo button, .modulo :is(input:not([type="checkbox"]), select) { min-height: 44px; }
+.modulo .modulo-pestanas {
+  display: flex; flex-wrap: wrap; gap: 4px; width: fit-content; max-width: 100%;
+  padding: 4px; border: 1px solid #e9e0d3; border-radius: 13px; background: #f7f2eb;
+}
+.modulo .modulo-pestanas button {
+  flex: 1 1 auto; min-width: 0;
+  background: transparent; color: var(--marron-fuerte); border: 1px solid transparent;
+}
+.modulo .modulo-pestanas button:hover { background: #eee5d8; }
+.modulo .modulo-pestanas button[aria-pressed="true"] {
+  background: var(--blanco); color: var(--tinta); border-color: #e5d5bc;
+  box-shadow: 0 2px 5px rgb(43 31 15 / 8%);
+}
+.modulo .tabla-contenedor { border-radius: 12px; }
+.modulo table :is(th, td) { padding: 11px 13px; }
+.modulo table th { background: #f5efe6; }
+.modulo table tbody tr:hover { background: #f8f3eb; }
+.modulo table td:first-child { color: var(--tinta); }
+.modulo-numero { text-align: end; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.modulo-estado {
+  display: inline-block; padding: 4px 9px; border-radius: 999px; margin-inline-end: 4px;
+  font-size: .75rem; font-weight: 700; background: #edf0f4; color: var(--tinta);
+}
+.modulo-estado[data-tono="exito"] { background: var(--fondo-exito); color: var(--exito); }
+.modulo-estado[data-tono="acento"] { background: #f2eadc; color: #684819; }
+.modulo-estado[data-tono="alerta"] { background: #fbefcc; color: #614717; }
+.modulo-vacio, .modulo .reportes-vacio {
+  padding: clamp(14px, 2.5vw, 25px); text-align: center; color: var(--secundario);
+  background: var(--crema); border: 1px dashed #ded3c0; border-radius: 12px;
+}
+.modulo .tabla-contenedor + .modulo-vacio { margin-top: 10px; }
+.modulo-vacio h3 { color: var(--tinta); }
+.modulo-vacio a { display: inline-flex; align-items: center; min-height: 44px; color: var(--marron); }
+.modulo-ayuda { color: var(--secundario); }
+.modulo-contexto { background: var(--crema); border-radius: 9px; padding: 10px 12px; }
+.modulo-busqueda {
+  display: grid; gap: 5px; max-width: 35rem; margin-block: 12px;
+  font-size: .84rem; font-weight: 650; color: var(--marron-fuerte);
+}
+.modulo-busqueda .buscador { width: 100%; font-weight: 400; }
+.modulo .formulario-producto { border-radius: 13px; }
+.modulo .modulo-grupo {
+  min-inline-size: 0; margin-block: 14px; padding: 10px 12px 12px;
+  border: 1px solid var(--borde); border-radius: 10px; background: var(--blanco);
+}
+.modulo-grupo legend { padding-inline: 5px; color: var(--marron); font-weight: 700; }
+.modulo .modulo-operacion { border-inline-start: 4px solid var(--dorado); }
+.modulo .modulo-confirmacion { border-color: #c9ac7c; background: #fbf5e9; }
+.modulo-metricas { display: flex; flex-wrap: wrap; gap: 8px; margin-block: 12px; }
+.modulo-metricas div { padding: 8px 13px; border: 1px solid var(--borde); border-radius: 11px; background: var(--crema); }
+.modulo-metricas dt { color: var(--secundario); font-size: .82rem; }
+.modulo-metricas dd { font-size: 1.45rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.productos .alertas-inventario { margin-bottom: 0; }
+.productos .estadistica strong { font: 700 clamp(1.5rem, 3vw, 2.4rem)/1.15 var(--fuente); font-variant-numeric: tabular-nums; }
+.producto-identidad { display: flex; align-items: center; gap: 9px; min-width: 8.5rem; }
+.producto-identidad img { border-radius: 9px; object-fit: contain; flex: none; background: var(--crema); }
+.proveedores .acciones-usuario { display: flex; flex-wrap: wrap; gap: 8px; }
+.inventario .modulo-estado { margin-inline-start: 6px; }
+
+@media (max-width: 560px) {
+  .modulo table :is(th, td) { padding: 9px 10px; }
+  .modulo .modulo-pestanas { width: 100%; }
+  :is(.compras-vista, .ventas) .modulo-pestanas button { flex: 1 1 0; padding-inline: 6px; }
+}

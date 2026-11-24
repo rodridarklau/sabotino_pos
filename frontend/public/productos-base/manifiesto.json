@@ -1,0 +1,316 @@
+[
+  {
+    "id": "pan-amasado",
+    "nombre": "Pan amasado",
+    "categoria": "Panadería",
+    "ruta": "/productos-base/pan-amasado.svg",
+    "sinonimos": [
+      "pan casero"
+    ],
+    "origen": "ilustración local"
+  },
+  {
+    "id": "hallulla",
+    "nombre": "Hallulla",
+    "categoria": "Panadería",
+    "ruta": "/productos-base/hallulla.svg",
+    "sinonimos": [
+      "pan hallulla"
+    ],
+    "origen": "ilustración local"
+  },
+  {
+    "id": "marraqueta",
+    "nombre": "Marraqueta",
+    "categoria": "Panadería",
+    "ruta": "/productos-base/marraqueta.svg",
+    "sinonimos": [
+      "pan batido",
+      "pan francés"
+    ],
+    "origen": "ilustración local"
+  },
+  {
+    "id": "croissant",
+    "nombre": "Croissant",
+    "categoria": "Panadería",
+    "ruta": "/productos-base/croissant.svg",
+    "sinonimos": [
+      "medialuna"
+    ],
+    "origen": "ilustración local"
+  },
+  {
+    "id": "baguette",
+    "nombre": "Baguette",
+    "categoria": "Panadería",
+    "ruta": "/productos-base/baguette.svg",
+    "sinonimos": [
+      "baguet"
+    ],
+    "origen": "ilustración local"
+  },
+  {
+    "id": "torta-chocolate",
+    "nombre": "Torta de chocolate",
+    "categoria": "Tortas",
+    "ruta": "/productos-base/torta-chocolate.svg",
+    "sinonimos": [
+      "pastel de chocolate"
+    ],
+    "origen": "ilustración local"
+  },
+  {
+    "id": "torta-manjar",
+    "nombre": "Torta de manjar",
+    "categoria": "Tortas",
+    "ruta": "/productos-base/torta-manjar.svg",
+    "sinonimos": [
+      "dulce de leche"
+    ],
+    "origen": "ilustración local"
+  },
+  {
+    "id": "torta-tres-leches",
+    "nombre": "Torta de tres leches",
+    "categoria": "Tortas",
+    "ruta": "/productos-base/torta-tres-leches.svg",
+    "sinonimos": [
+      "tres leches"
+    ],
+    "origen": "ilustración local"
+  },
+  {
+    "id": "cheesecake-frutilla",
+    "nombre": "Cheesecake de frutilla",
+    "categoria": "Tortas",
+    "ruta": "/productos-base/cheesecake-frutilla.svg",
+    "sinonimos": [
+      "queso y fresa",
+      "cheesecake de fresa"
+    ],
+    "origen": "ilustración local"
+  },
+  {
+    "id": "torta-milhojas",
+    "nombre": "Torta milhojas",
+    "categoria": "Tortas",
+    "ruta": "/productos-base/torta-milhojas.svg",
+    "sinonimos": [
+      "mil hojas",
+      "torta de hojas"
+    ],
+    "origen": "ilustración local"
+  },
+  {
+    "id": "brownie",
+    "nombre": "Brownie",
+    "categoria": "Pastelería individual",
+    "ruta": "/productos-base/brownie.svg",
+    "sinonimos": [
+      "brownies"
+    ],
+    "origen": "ilustración local"
+  },
+  {
+    "id": "muffin-chocolate",
+    "nombre": "Muffin de chocolate",
+    "categoria": "Pastelería individual",
+    "ruta": "/productos-base/muffin-chocolate.svg",
+    "sinonimos": [
+      "muffin cacao"
+    ],
+    "origen": "ilustración local"
+  },
+  {
+    "id": "muffin-vainilla",
+    "nombre": "Muffin de vainilla",
+    "categoria": "Pastelería individual",
+    "ruta": "/productos-base/muffin-vainilla.svg",
+    "sinonimos": [
+      "muffin de vainilla"
+    ],
+    "origen": "ilustración local"
+  },
+  {
+    "id": "cupcake",
+    "nombre": "Cupcake",
+    "categoria": "Pastelería individual",
+    "ruta": "/productos-base/cupcake.svg",
+    "sinonimos": [
+      "magdalena decorada"
+    ],
+    "origen": "ilustración local"
+  },
+  {
+    "id": "kuchen-manzana",
+    "nombre": "Kuchen de manzana",
+    "categoria": "Pastelería individual",
+    "ruta": "/productos-base/kuchen-manzana.svg",
+    "sinonimos": [
+      "tarta de manzana"
+    ],
+    "origen": "ilustración local"
+  },
+  {
+    "id": "kuchen-frambuesa",
+    "nombre": "Kuchen de frambuesa",
+    "categoria": "Pastelería individual",
+    "ruta": "/productos-base/kuchen-frambuesa.svg",
+    "sinonimos": [
+      "tarta de frambuesa"
+    ],
+    "origen": "ilustración local"
+  },
+  {
+    "id": "pie-limon",
+    "nombre": "Pie de limón",
+    "categoria": "Pastelería individual",
+    "ruta": "/productos-base/pie-limon.svg",
+    "sinonimos": [
+      "pie de limon",
+      "lemon pie"
+    ],
+    "origen": "ilustración local"
+  },
+  {
+    "id": "tartaleta-frutas",
+    "nombre": "Tartaleta de frutas",
+    "categoria": "Pastelería individual",
+    "ruta": "/productos-base/tartaleta-frutas.svg",
+    "sinonimos": [
+      "tartaleta de fruta"
+    ],
+    "origen": "ilustración local"
+  },
+  {
+    "id": "berlin",
+    "nombre": "Berlín",
+    "categoria": "Bollería y dulces",
+    "ruta": "/productos-base/berlin.svg",
+    "sinonimos": [
+      "berlin",
+      "berlines"
+    ],
+    "origen": "ilustración local"
+  },
+  {
+    "id": "dona-chocolate",
+    "nombre": "Dona de chocolate",
+    "categoria": "Bollería y dulces",
+    "ruta": "/productos-base/dona-chocolate.svg",
+    "sinonimos": [
+      "donut de chocolate",
+      "rosquilla de chocolate"
+    ],
+    "origen": "ilustración local"
+  },
+  {
+    "id": "roll-canela",
+    "nombre": "Roll de canela",
+    "categoria": "Bollería y dulces",
+    "ruta": "/productos-base/roll-canela.svg",
+    "sinonimos": [
+      "rollo de canela",
+      "cinnamon roll"
+    ],
+    "origen": "ilustración local"
+  },
+  {
+    "id": "alfajor",
+    "nombre": "Alfajor",
+    "categoria": "Bollería y dulces",
+    "ruta": "/productos-base/alfajor.svg",
+    "sinonimos": [
+      "alfajores"
+    ],
+    "origen": "ilustración local"
+  },
+  {
+    "id": "galleta-chips-chocolate",
+    "nombre": "Galleta con chips de chocolate",
+    "categoria": "Bollería y dulces",
+    "ruta": "/productos-base/galleta-chips-chocolate.svg",
+    "sinonimos": [
+      "cookie",
+      "galleta chips"
+    ],
+    "origen": "ilustración local"
+  },
+  {
+    "id": "brazo-reina",
+    "nombre": "Brazo de reina",
+    "categoria": "Bollería y dulces",
+    "ruta": "/productos-base/brazo-reina.svg",
+    "sinonimos": [
+      "brazo de reina",
+      "arrollado dulce"
+    ],
+    "origen": "ilustración local"
+  },
+  {
+    "id": "queque-marmol",
+    "nombre": "Queque de mármol",
+    "categoria": "Bollería y dulces",
+    "ruta": "/productos-base/queque-marmol.svg",
+    "sinonimos": [
+      "bizcocho marmolado",
+      "queque marmolado"
+    ],
+    "origen": "ilustración local"
+  },
+  {
+    "id": "empanada-pino",
+    "nombre": "Empanada de pino",
+    "categoria": "Salados",
+    "ruta": "/productos-base/empanada-pino.svg",
+    "sinonimos": [
+      "empanada de carne"
+    ],
+    "origen": "ilustración local"
+  },
+  {
+    "id": "empanada-queso",
+    "nombre": "Empanada de queso",
+    "categoria": "Salados",
+    "ruta": "/productos-base/empanada-queso.svg",
+    "sinonimos": [
+      "empanada queso"
+    ],
+    "origen": "ilustración local"
+  },
+  {
+    "id": "cafe",
+    "nombre": "Café",
+    "categoria": "Bebidas",
+    "ruta": "/productos-base/cafe.svg",
+    "sinonimos": [
+      "espresso",
+      "cafe",
+      "capuccino"
+    ],
+    "origen": "ilustración local"
+  },
+  {
+    "id": "te",
+    "nombre": "Té",
+    "categoria": "Bebidas",
+    "ruta": "/productos-base/te.svg",
+    "sinonimos": [
+      "te negro",
+      "infusión"
+    ],
+    "origen": "ilustración local"
+  },
+  {
+    "id": "jugo-natural",
+    "nombre": "Jugo natural",
+    "categoria": "Bebidas",
+    "ruta": "/productos-base/jugo-natural.svg",
+    "sinonimos": [
+      "zumo",
+      "jugo de naranja"
+    ],
+    "origen": "ilustración local"
+  }
+]

@@ -1,0 +1,61 @@
+﻿.inicio { display: grid; gap: clamp(16px, 1.6vw, 28px); }
+.inicio-portada {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  min-height: clamp(190px, 13vw, 250px);
+  border-radius: 17px;
+  position: relative; isolation: isolate; overflow: hidden;
+  background: linear-gradient(95deg, #f6f2ef 38%, #eee4da);
+  padding: clamp(22px, 2.7vw, 50px);
+}
+.inicio-portada::before {
+  content: ""; position: absolute; z-index: -1; top: -34%; right: 3%;
+  height: 164%; aspect-ratio: 3 / 2;
+  background: url("/branding/banner-pasteleria.webp") center / cover no-repeat;
+  mask-image: linear-gradient(90deg, transparent 4%, #000 32%, #000 79%, transparent 100%);
+}
+.inicio-portada h1 { font: 700 clamp(2.25rem, 4.15vw, 5rem)/1.05 var(--titular); margin: 8px 0; letter-spacing: -.04em; overflow-wrap: anywhere; }
+.inicio-portada > div { min-width: 0; max-width: 68%; }
+.inicio-marca { color: #835619; font-weight: 700; font-size: .78rem; letter-spacing: .16em; }
+.inicio time { color: var(--tinta); font-size: clamp(.95rem, 1.3vw, 1.25rem); }
+.inicio .inicio-actualizar {
+  display: inline-flex; align-items: center; gap: 8px; flex: none;
+  background: #876028; border-color: #96703b; box-shadow: 0 3px 9px #52370e18;
+}
+.inicio .inicio-actualizar:hover:not(:disabled) { background: #735021; }
+.inicio-indicadores { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: clamp(12px, 1.2vw, 22px); }
+.inicio-tarjeta, .inicio-panel {
+  min-width: 0; background: var(--blanco); border: 1px solid var(--borde);
+  border-radius: 17px; box-shadow: 0 6px 16px rgb(19 35 55 / 6%);
+  padding: clamp(16px, 1.4vw, 26px); overflow-wrap: anywhere;
+}
+.inicio-tarjeta h2 { display: flex; align-items: center; gap: 11px; font-size: 1rem; }
+.inicio-icono { display: grid; place-items: center; flex: 0 0 39px; height: 39px; color: #885a18; background: #f8f0e5; border-radius: 11px; }
+.inicio-tarjeta strong { display: block; font-size: clamp(1.5rem, 2.55vw, 2.75rem); line-height: 1.12; margin-block: 10px 4px; font-variant-numeric: tabular-nums; letter-spacing: -.035em; }
+.inicio-tarjeta:last-child strong { font-size: clamp(1.25rem, 1.9vw, 2.1rem); }
+.inicio-tarjeta p, .inicio-panel p { color: var(--secundario); }
+.inicio-panel h2 { display: flex; align-items: center; gap: 11px; font: 700 clamp(1.35rem, 1.85vw, 2rem)/1.15 var(--titular); margin-bottom: 12px; }
+.inicio-panel h2 svg { color: #946629; width: 28px; height: 28px; flex-basis: 28px; }
+.inicio-panel:has(.inicio-acciones) { background: transparent; box-shadow: none; border: 0; padding: 4px 0; }
+.inicio-panel #inicio-acciones { font: 750 .83rem var(--fuente); letter-spacing: .16em; text-transform: uppercase; }
+.inicio-acciones, .inicio-actividad { display: grid; gap: clamp(10px, 1.2vw, 22px); }
+.inicio-acciones { grid-template-columns: repeat(auto-fit, minmax(min(100%, 175px), 1fr)); }
+.inicio-actividad-dueno { grid-template-columns: minmax(0, 1fr) minmax(0, 1.14fr); align-items: stretch; }
+.inicio button { min-height: 44px; }
+.inicio-acciones button { display: flex; align-items: center; text-align: start; gap: 8px; min-height: 54px; border-radius: 13px; box-shadow: var(--sombra); }
+.inicio-acciones button svg { color: #8a5a16; }
+.inicio-acciones button svg:last-child { margin-inline-start: auto; width: 16px; flex-basis: 16px; }
+.inicio-acciones .inicio-nueva-venta svg { color: #f4dfbd; }
+.inicio-panel > button { margin-top: 14px; border-color: #bd965c; }
+.inicio-lista { list-style: none; }
+.inicio-lista li { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; padding-block: 10px; border-bottom: 1px solid var(--borde); }
+.inicio-aviso { border: 1px solid #e3cf9e; color: #614719; background: #f9f1dd; padding: 12px 16px; border-radius: var(--radio-control); }
+@media (max-width: 760px) {
+  .inicio-portada {
+    flex-direction: column; align-items: flex-start; justify-content: center;
+  }
+  .inicio-portada::before { top: -23%; right: -32%; height: 140%; opacity: .28; mask-image: linear-gradient(90deg, transparent, #000 77%); }
+  .inicio-portada > div { max-width: 100%; }
+  .inicio-actividad-dueno { grid-template-columns: minmax(0, 1fr); }
+}
+
+

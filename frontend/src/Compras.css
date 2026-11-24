@@ -1,0 +1,15 @@
+.compras-vista { display: grid; gap: clamp(14px, 1.5vw, 22px); align-content: start; min-width: 0; }
+.compras-proveedores, .compras-titulo-lineas, .compras-linea-cabecera, .compras-resumen {
+  display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;
+}
+.compras-tarjeta p, .compras-subtotal span, .compras-resumen span { color: var(--secundario); }
+.compras-titulo-lineas, .compras-linea-cabecera, .compras-nota { margin-bottom: 12px; }
+.compras-linea { border: 1px solid var(--borde); background: var(--crema); border-radius: var(--radio); padding: clamp(12px, 2vw, 18px); margin-block: 10px; min-width: 0; }
+.compras-subtotal, .compras-resumen div { display: grid; gap: 4px; }
+.compras-subtotal { align-self: end; }
+.compras-subtotal strong, .compras-resumen strong { color: var(--marron-fuerte); font: 700 1.25rem/1.15 var(--fuente); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.compras-resumen { border: 1px solid #e5d5bc; border-radius: 12px; margin-block: 14px; padding: 14px; background: #fbf5e9; }
+.compras-resumen strong { font-size: clamp(1.6rem, 3vw, 2.35rem); }
+.compras-acciones { display: flex; flex-wrap: wrap; gap: 9px; justify-content: flex-end; margin-top: 14px; }
+.compras-tarjeta .compras-error { margin-bottom: 12px; }
+.compras-tarjeta .compras-advertencia { color: var(--peligro); margin-top: 6px; font-weight: 600; }
