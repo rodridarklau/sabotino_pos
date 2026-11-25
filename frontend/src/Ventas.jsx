@@ -1,9 +1,11 @@
-import { useEffect, useRef, useState } from "react";
+import { useContext, useEffect, useRef, useState } from "react";
 import "./Ventas.css";
 import Comprobante from "./Comprobante.jsx";
 import CatalogoVenta from "./CatalogoVenta.jsx";
+import { AbrirCajaPrincipal } from "./Caja.jsx";
+import { Borradores, useBorrador } from "./borradores.js";
 import { Icono } from "./Navegacion.jsx";
-import { PestanasModulo } from "./Presentacion.jsx";
+import { CabeceraModulo, PestanasModulo } from "./Presentacion.jsx";
 
 const vistasVentas = [["nueva", "Nueva venta"], ["historial", "Historial"]];
 
@@ -147,25 +149,42 @@ function HistorialVentas({ revision, ocupado, anular, verComprobante }) {
 }
 
 export default function Ventas({ usuario, onVentaRegistrada, onIrACaja }) {
+  const borradores = useContext(Borradores);
   const [vista, setVista] = useState("nueva");
   const clavePendiente = `sabotino.venta-pendiente.${usuario.id}`;
   const [pendiente, setPendiente] = useState(() => sessionStorage.getItem(clavePendiente) || "");
   const [revision, setRevision] = useState(0);
-  const [lineas, setLineas] = useState([]);
-  const [pagos, setPagos] = useState([]);
-  const [turno, setTurno] = useState("");
+  const [avance, setAvance] = useState(null);
   const [confirmacion, setConfirmacion] = useState(null);
-  const [ocupado, setOcupado] = useState(false);
+  const [ocupado, setOcupado] = useBorrador("ventas", "envio", false, () => false);
   const [mensaje, setMensaje] = useState("");
   const [ventaRegistrada, setVentaRegistrada] = useState(null);
   const [comprobante, setComprobante] = useState(null);
   const [error, setError] = useState("");
   const enCurso = useRef(false);
-  const proximoPago = useRef(0);
+  const tituloPaso = useRef(null);
+  const [referencias, setReferencias] = useState({});
   const catalogo = useConsulta("/catalogos", revision);
   const { productos = [], metodos = [], turnos = [] } = catalogo?.datos ?? {};
-  const turnoId = turnos.some((t) => t.ID_TURNO_CAJA === Number(turno))
-    ? Number(turno) : turnos.length === 1 ? turnos[0].ID_TURNO_CAJA : "";
+  const turnoId = turnos.length === 1 ? turnos[0].ID_TURNO_CAJA : null;
+  const turnoVerificado = Boolean(catalogo?.datos);
+  useEffect(() => {
+    if (!turnoVerificado) return;
+    for (const clave of borradores.keys()) {
+      if (/^ventas:\d+:/.test(clave) && !clave.startsWith(`ventas:${turnoId}:`)) borradores.delete(clave);
+    }
+  }, [borradores, turnoId, turnoVerificado]);
+  const paso = avance?.turnoId === turnoId ? avance.paso : 0;
+  const setPaso = (siguiente) => setAvance({ turnoId, paso: siguiente });
+  const [lineas, setLineas] = useBorrador("ventas", `${turnoId}:lineas`, [], (filas) => filas.length > 0);
+  const [pagosSinReferencia, guardarPagos] = useBorrador("ventas", `${turnoId}:pagos`, [], (filas) => filas.length > 0);
+  const [efectivoRecibido, setEfectivoRecibido] = useBorrador("ventas", `${turnoId}:efectivo`, "");
+  const pagos = pagosSinReferencia.map((p) => ({ ...p, comprobante: referencias[`${turnoId}:${p.clave}`] ?? "" }));
+
+  function setPagos(filas) {
+    setReferencias(Object.fromEntries(filas.map((p) => [`${turnoId}:${p.clave}`, p.comprobante])));
+    guardarPagos(filas.map(({ clave, metodoId, monto }) => ({ clave, metodoId, monto })));
+  }
   const detalle = lineas.map((linea) => {
     const producto = productos.find((p) => p.ID_PRODUCTO === linea.productoId);
     const milesimas = unidades(linea.cantidad, 3, 999999999999);
@@ -175,7 +194,18 @@ export default function Ventas({ usuario, onVentaRegistrada, onIrACaja }) {
   });
   const total = detalle.reduce((suma, linea) => suma + linea.subtotal, 0n);
   const pagado = pagos.reduce((suma, pago) => suma + BigInt(unidades(pago.monto, 2, maximo) || 0), 0n);
+  const efectivo = pagos.reduce((suma, pago) => {
+    const metodo = metodos.find((m) => m.ID_METODO_PAGO === Number(pago.metodoId));
+    return metodo?.NOMBRE_METODO === "EFECTIVO" ? suma + BigInt(unidades(pago.monto, 2, maximo) || 0) : suma;
+  }, 0n);
+  const recibido = unidades(efectivoRecibido, 2, maximo);
+  const vuelto = Number.isFinite(recibido) && recibido >= Number(efectivo) ? recibido - Number(efectivo) : null;
+  const pasoActual = ventaRegistrada !== null ? 4 : confirmacion ? 3 : paso;
   const bloqueado = ocupado || Boolean(confirmacion);
+
+  useEffect(() => {
+    if (pasoActual > 0 && pasoActual < 4 && vista === "nueva") tituloPaso.current?.focus();
+  }, [pasoActual, vista]);
 
   useEffect(() => {
     function alVolver() {
@@ -189,7 +219,7 @@ export default function Ventas({ usuario, onVentaRegistrada, onIrACaja }) {
     setRevision((n) => n + 1);
   }
 
-  function prepararVenta(e) {
+  function avanzarVenta(e) {
     e.preventDefault();
     setMensaje("");
     if (pendiente) return;
@@ -201,21 +231,43 @@ export default function Ventas({ usuario, onVentaRegistrada, onIrACaja }) {
       }
       if (linea.milesimas / 1000 > linea.producto.STOCK_ACTUAL) return setError(`Stock insuficiente para ${linea.producto.NOMBRE_PRODUCTO}.`);
     }
+    if (paso < 2) {
+      setError("");
+      if (paso === 1 && total > 0n && pagos.length === 0) agregarPago();
+      setPaso(paso + 1);
+      return;
+    }
     for (const pago of pagos) {
       const metodo = metodos.find((m) => m.ID_METODO_PAGO === Number(pago.metodoId));
       if (!metodo || !(unidades(pago.monto, 2, maximo) > 0) ||
           (metodo.REQUIERE_COMPROBANTE === "S" && !pago.comprobante.trim()) ||
           codificador.encode(pago.comprobante.trim()).length > 50) {
-        return setError("Revisa los métodos, importes y comprobantes de los pagos.");
+        return setError("Revisa los métodos, los importes y las referencias de pago obligatorias.");
       }
     }
     if (total > BigInt(maximo) || pagado !== total) return setError("La suma de los pagos debe coincidir con el total.");
+    if (efectivo > 0n && vuelto === null) return setError("Ingresa un efectivo recibido igual o superior al importe en efectivo.");
     setError("");
     setConfirmacion({
       turnoId, totalEsperado: Number(total) / 100,
       lineas: detalle.map(({ productoId, milesimas }) => ({ productoId, cantidad: milesimas / 1000 })),
       pagos: pagos.map((p) => ({ metodoId: Number(p.metodoId), monto: unidades(p.monto, 2, maximo) / 100, comprobante: p.comprobante.trim() }))
     });
+  }
+
+  function agregarPago() {
+    const restante = total - pagado;
+    const metodoId = metodos.length === 1 ? String(metodos[0].ID_METODO_PAGO) : "";
+    const clave = Math.max(0, ...pagos.map((p) => p.clave)) + 1;
+    setPagos([...pagos, { clave, metodoId, monto: restante > 0n ? (Number(restante) / 100).toFixed(2) : "", comprobante: "" }]);
+  }
+
+  function nuevaVenta() {
+    setVentaRegistrada(null);
+    setMensaje("");
+    setError("");
+    setPaso(0);
+    setEfectivoRecibido("");
   }
 
   async function operar(ruta, datos, alConfirmar, esVenta = false) {
@@ -239,6 +291,9 @@ export default function Ventas({ usuario, onVentaRegistrada, onIrACaja }) {
         setPendiente(referencia);
         setLineas([]);
         setPagos([]);
+        setEfectivoRecibido("");
+        setPaso(0);
+        setEfectivoRecibido("");
       } else {
         setError("Resultado incierto. Revisa el estado del borrador antes de repetir la anulación.");
       }
@@ -257,6 +312,7 @@ export default function Ventas({ usuario, onVentaRegistrada, onIrACaja }) {
       setVentaRegistrada(ventaId);
       setLineas([]);
       setPagos([]);
+      setEfectivoRecibido("");
       void onVentaRegistrada();
     }, true);
   }
@@ -268,17 +324,20 @@ export default function Ventas({ usuario, onVentaRegistrada, onIrACaja }) {
 
   return (
     <div className="ventas modulo">
-      <header className="encabezado ventas-encabezado">
-        <div><h1>Ventas</h1><p>Responsable: {usuario.nombre}</p></div>
+      <CabeceraModulo modulo="ventas" titulo="Ventas" descripcion={`Responsable: ${usuario.nombre}`}>
         <button className="secundario ventas-boton-icono" type="button" disabled={bloqueado} onClick={actualizar}>
           <Icono trazado={iconos.recargar} /> Actualizar
         </button>
-      </header>
+      </CabeceraModulo>
       <PestanasModulo etiqueta="Vistas de Ventas" prefijo="ventas-vista" opciones={vistasVentas} activa={vista} seleccionar={setVista} />
       {mensaje && <p role="status" className="mensaje-exito">{mensaje}</p>}
-      {ventaRegistrada !== null && <div>
-        <button type="button" onClick={() => setComprobante(ventaRegistrada)}>Ver comprobante de la venta #{ventaRegistrada}</button>
-      </div>}
+      {ventaRegistrada !== null && vista === "nueva" && <section className="panel ventas-recibo">
+        <h2>¿Desea generar comprobante?</h2>
+        <div className="acciones-formulario">
+          <button type="button" onClick={() => setComprobante(ventaRegistrada)}>Sí</button>
+          <button className="secundario" type="button" onClick={nuevaVenta}>No</button>
+        </div>
+      </section>}
       {error && <p role="alert" className="error">{error}</p>}
       {pendiente && (
         <section className="panel ventas-incertidumbre" role="alert">
@@ -298,27 +357,29 @@ export default function Ventas({ usuario, onVentaRegistrada, onIrACaja }) {
           </div>
           {!catalogo && <p role="status">Consultando catálogo y cajas…</p>}
           {catalogo?.error && <p role="alert" className="error">{catalogo.error}</p>}
-          {catalogo?.datos && <>
-            {turnos.length ? <div className="campos-producto ventas-campos"><label>Turno abierto
-              <select value={turnoId} onChange={(e) => setTurno(e.target.value)} disabled={bloqueado}>
-                <option value="">Selecciona un turno</option>
-                {turnos.map((t) => <option key={t.ID_TURNO_CAJA} value={t.ID_TURNO_CAJA}>{t.NOMBRE_CAJA} · Turno #{t.ID_TURNO_CAJA}</option>)}
-              </select>
-            </label></div> : <p><strong>Sin turno abierto.</strong> Abre un turno en Caja para registrar ventas.</p>}
-            <button className="secundario" type="button" disabled={bloqueado} onClick={onIrACaja}>Ir a Caja</button>
-          </>}
+          {catalogo?.datos && <p><strong>{turnoId ? `Caja Principal · Turno #${turnoId} abierto` : "Sin turno abierto"}</strong></p>}
+          {turnoId && <button className="secundario" type="button" disabled={bloqueado} onClick={onIrACaja}>Ver Caja</button>}
         </section>
-        <a className="ventas-enlace-carrito" href="#ventas-carrito">Ir a venta actual · {lineas.length} · {importe(Number(total) / 100)}</a>
-        <div className="pos-layout">
-          <CatalogoVenta productos={productos} lineas={lineas} bloqueado={bloqueado} listo={Boolean(catalogo?.datos)}
+        {catalogo?.datos && turnos.length === 0 && !pendiente && ventaRegistrada === null && <AbrirCajaPrincipal modulo="ventas" alAbrir={actualizar} />}
+        {turnos.length > 1 && <p role="alert" className="error">La Caja Principal tiene más de un turno abierto. Revisa Caja antes de vender.</p>}
+        {(turnoId || ventaRegistrada !== null) && <ol className="ventas-pasos" aria-label="Pasos de la venta">
+          {["Productos", "Revisar pedido", "Pago", "Confirmar", "Comprobante"].map((nombre, indice) => (
+            <li key={nombre} aria-current={indice === pasoActual ? "step" : undefined}>{nombre}</li>
+          ))}
+        </ol>}
+        {turnoId && !pendiente && ventaRegistrada === null && <>
+        {pasoActual === 0 && <a className="ventas-enlace-carrito" href="#ventas-carrito">Ir al pedido · {lineas.length} · {importe(Number(total) / 100)}</a>}
+        <div className={pasoActual === 0 ? "pos-layout" : undefined}>
+          {pasoActual === 0 && <CatalogoVenta productos={productos} lineas={lineas} bloqueado={bloqueado} listo={Boolean(catalogo?.datos)}
             agregar={(producto, unidadesIniciales) => setLineas((actuales) => (
               actuales.length < 100 && !actuales.some((l) => l.productoId === producto.ID_PRODUCTO)
                 ? [...actuales, { productoId: producto.ID_PRODUCTO, cantidad: String(unidadesIniciales) }] : actuales
-            ))} />
+            ))} />}
           <section id="ventas-carrito" className="panel pos-venta" aria-labelledby="ventas-actual" tabIndex={-1}>
-            <div className="pos-venta-cabecera"><h2 id="ventas-actual">Venta actual</h2><a href="#ventas-catalogo" className="ventas-volver-catalogo">Volver al catálogo</a></div>
-            <form onSubmit={prepararVenta}>
-              <fieldset className="ventas-campos" disabled={bloqueado || !catalogo?.datos}>
+            <div className="pos-venta-cabecera"><h2 id="ventas-actual" ref={tituloPaso} tabIndex={-1}>{["Pedido actual", "Revisar pedido", "Elegir pago", "Confirmar venta"][pasoActual]}</h2>
+              {pasoActual === 0 && <a href="#ventas-catalogo" className="ventas-volver-catalogo">Volver al catálogo</a>}</div>
+            {!confirmacion && <form onSubmit={avanzarVenta}>
+              {paso < 2 && <fieldset className="ventas-campos" disabled={bloqueado}>
                 <legend>Productos seleccionados</legend>
                 {detalle.length === 0 && <EstadoVacio icono="venta" titulo="Tu carrito está vacío">
                   Agrega un producto del catálogo para comenzar.
@@ -331,60 +392,93 @@ export default function Ventas({ usuario, onVentaRegistrada, onIrACaja }) {
                     <label>Cantidad {linea.producto?.CODIGO_UNIDAD}<input type="number" required value={linea.cantidad}
                       min={linea.producto?.PERMITE_DECIMALES === "N" ? "1" : "0.001"}
                       max={linea.producto?.STOCK_ACTUAL} step={linea.producto?.PERMITE_DECIMALES === "N" ? "1" : "0.001"}
+                      aria-invalid={linea.milesimas / 1000 > linea.producto?.STOCK_ACTUAL || undefined}
+                      aria-describedby={linea.milesimas / 1000 > linea.producto?.STOCK_ACTUAL ? `stock-venta-${linea.productoId}` : undefined}
                       onChange={(e) => setLineas(lineas.map((l) => l.productoId === linea.productoId ? { ...l, cantidad: e.target.value } : l))} /></label>
+                    {linea.milesimas / 1000 > linea.producto?.STOCK_ACTUAL && <small className="error" id={`stock-venta-${linea.productoId}`}>Stock disponible: {linea.producto.STOCK_ACTUAL} {linea.producto.CODIGO_UNIDAD}.</small>}
                     <span className="ventas-subtotal"><small>Subtotal</small><strong>{importe(Number(linea.subtotal) / 100)}</strong></span>
                     <button className="peligro" type="button" onClick={() => setLineas(lineas.filter((l) => l.productoId !== linea.productoId))}>Quitar</button>
                   </div>
                 ))}
-                <div className="ventas-cobro">
+              </fieldset>}
+                {paso === 2 && <div className="ventas-cobro">
                   <div className="ventas-pagos">
-                    <h3 className="ventas-boton-icono"><Icono trazado={iconos.pago} /> Cobro</h3>
-                    <button className="secundario" type="button" disabled={pagos.length >= 100 || metodos.length === 0} onClick={() => {
-                      const restante = total - pagado;
-                      setPagos([...pagos, { clave: ++proximoPago.current, metodoId: "", monto: restante > 0n ? (Number(restante) / 100).toFixed(2) : "", comprobante: "" }]);
-                    }}>Añadir pago</button>
+                    <h3 className="ventas-boton-icono"><Icono trazado={iconos.pago} /> Métodos de pago</h3>
+                    <button className="secundario" type="button" disabled={pagos.length >= 100 || metodos.length === 0} onClick={agregarPago}>Añadir pago</button>
                   </div>
+                  {metodos.length === 0 && <p className="error" role="alert">No hay métodos de pago disponibles. Actualiza los datos para volver a consultar.</p>}
                   {pagos.map((pago) => {
-                    const requiere = metodos.find((m) => m.ID_METODO_PAGO === Number(pago.metodoId))?.REQUIERE_COMPROBANTE === "S";
+                    const metodo = metodos.find((m) => m.ID_METODO_PAGO === Number(pago.metodoId));
+                    const requiere = metodo?.REQUIERE_COMPROBANTE === "S";
+                    const tarjeta = metodo?.NOMBRE_METODO === "TARJETA";
+                    const transferencia = metodo?.NOMBRE_METODO === "TRANSFERENCIA";
+                    const etiqueta = tarjeta ? "Código de autorización" : transferencia ? "Número de operación" : "Código del pago";
+                    const ayuda = tarjeta ? "Cópialo del recibo del terminal." : transferencia
+                      ? "Cópialo del comprobante de la app del banco." : "Cópialo del recibo del medio de pago.";
                     const cambiar = (campo, valor) => setPagos(pagos.map((p) => p.clave === pago.clave ? { ...p, [campo]: valor } : p));
                     return <div className="campos-producto ventas-fila ventas-pago" key={pago.clave}>
-                      <label>Método<select required value={pago.metodoId} onChange={(e) => cambiar("metodoId", e.target.value)}>
+                      <label>Método (obligatorio)<select required value={pago.metodoId} onChange={(e) => {
+                        const metodoId = e.target.value;
+                        setPagos(pagos.map((p) => p.clave === pago.clave ? { ...p, metodoId, comprobante: "" } : p));
+                      }}>
                         <option value="">Selecciona un método</option>
                         {metodos.map((m) => <option key={m.ID_METODO_PAGO} value={m.ID_METODO_PAGO}>{m.NOMBRE_METODO}</option>)}
                       </select></label>
-                      <label>Importe<input type="number" required min="0.01" step="0.01" value={pago.monto} onChange={(e) => cambiar("monto", e.target.value)} /></label>
-                      <label>Comprobante {requiere ? "(obligatorio)" : "(opcional)"}
-                        <input required={requiere} maxLength={50} value={pago.comprobante} onChange={(e) => cambiar("comprobante", e.target.value)} /></label>
+                      <label>Importe aplicado (obligatorio)<input type="number" required min="0.01" step="0.01" value={pago.monto} onChange={(e) => cambiar("monto", e.target.value)} /></label>
+                      {requiere && <label>{etiqueta} (obligatorio)
+                        <input required maxLength={50} placeholder="Pega el código aquí" spellCheck={false} autoComplete="off"
+                          aria-describedby={`ayuda-pago-${pago.clave}`}
+                          value={pago.comprobante} onChange={(e) => cambiar("comprobante", e.target.value)} />
+                        <small id={`ayuda-pago-${pago.clave}`}>{ayuda}</small>
+                      </label>}
                       <button className="peligro" type="button" onClick={() => setPagos(pagos.filter((p) => p.clave !== pago.clave))}>Quitar pago</button>
                     </div>;
                   })}
+                  {efectivo > 0n && <div className="campos-producto">
+                    <label>Efectivo recibido (obligatorio)<input type="number" required min={Number(efectivo) / 100} max={maximo / 100}
+                      step="0.01" value={efectivoRecibido} onChange={(e) => setEfectivoRecibido(e.target.value)} /></label>
+                    <div><small>Vuelto</small><p><strong>{vuelto === null ? "Por calcular" : importe(vuelto / 100)}</strong></p></div>
+                  </div>}
+                </div>}
                   <div className="ventas-total">
                     <dl><div><dt>Total de venta</dt><dd>{importe(Number(total) / 100)}</dd></div>
-                      <div><dt>Pagado</dt><dd>{importe(Number(pagado) / 100)}</dd></div>
-                      <div><dt>Diferencia</dt><dd>{importe(Number(total - pagado) / 100)}</dd></div></dl>
-                    <button type="submit" disabled={!turnoId || Boolean(pendiente) || !lineas.length}>Revisar venta</button>
+                      {paso === 2 && <><div><dt>Importe aplicado</dt><dd>{importe(Number(pagado) / 100)}</dd></div>
+                      <div><dt>Diferencia</dt><dd>{importe(Number(total - pagado) / 100)}</dd></div></>}</dl>
+                    <div className="acciones-formulario">
+                      {paso > 0 && <button className="secundario" type="button" onClick={() => { setError(""); setPaso(paso - 1); }}>Volver</button>}
+                      <button type="submit" disabled={!lineas.length || (paso === 2 && total > 0n && !pagos.length)}>{["Revisar pedido", "Continuar al pago", "Revisar y confirmar"][paso]}</button>
+                      {paso === 0 && (lineas.length > 0 || pagos.length > 0) && <button className="secundario" type="button" onClick={() => {
+                        if (!window.confirm("¿Descartar el pedido pendiente?")) return;
+                        setLineas([]);
+                        setPagos([]);
+                        setEfectivoRecibido("");
+                        setError("");
+                      }}>Descartar pedido</button>}
+                    </div>
                   </div>
-                </div>
-              </fieldset>
-            </form>
+            </form>}
             {confirmacion && <div className="formulario-producto ventas-confirmacion" role="group" aria-label="Confirmar venta" aria-busy={ocupado}>
-              <h3>Confirmar venta</h3>
               {ocupado && <p role="status">Registrando la venta…</p>}
               <ul>{detalle.map((linea) => <li key={linea.productoId}>{linea.producto.NOMBRE_PRODUCTO} · {cantidad.format(linea.milesimas / 1000)} {linea.producto.CODIGO_UNIDAD} · {importe(Number(linea.subtotal) / 100)}</li>)}</ul>
               <p>Turno #{confirmacion.turnoId} · <strong>Total {importe(confirmacion.totalEsperado)}</strong></p>
+              {efectivo > 0n && vuelto !== null && <p>Efectivo recibido {importe(recibido / 100)} · Vuelto {importe(vuelto / 100)}</p>}
               {confirmacion.pagos.length > 0 && <p>Pagos: {confirmacion.pagos.map((p) => `${metodos.find((m) => m.ID_METODO_PAGO === p.metodoId)?.NOMBRE_METODO} ${importe(p.monto)}`).join(" · ")}</p>}
               <div className="acciones-formulario">
-                <button className="secundario" type="button" disabled={ocupado} onClick={() => setConfirmacion(null)}>Cancelar</button>
+                <button className="secundario" type="button" disabled={ocupado} onClick={() => setConfirmacion(null)}>Volver al pago</button>
                 <button type="button" disabled={ocupado} onClick={registrar}>{ocupado ? "Registrando…" : "Confirmar venta"}</button>
               </div>
             </div>}
           </section>
         </div>
+        </>}
       </div>
       <div id="ventas-vista-historial" hidden={vista !== "historial"}>
         <HistorialVentas revision={revision} ocupado={bloqueado} anular={anular} verComprobante={setComprobante} />
       </div>
-      {comprobante !== null && <Comprobante key={comprobante} ventaId={comprobante} cerrar={() => setComprobante(null)} />}
+      {comprobante !== null && <Comprobante key={comprobante} ventaId={comprobante} cerrar={() => {
+        setComprobante(null);
+        if (comprobante === ventaRegistrada) nuevaVenta();
+      }} />}
     </div>
   );
 }

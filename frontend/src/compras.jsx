@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import "./Compras.css";
 import { CabeceraModulo, PestanasModulo } from "./Presentacion.jsx";
+import { useBorrador } from "./borradores.js";
+import { buscarProveedorPropio } from "./proveedorPropio.js";
 
 const vistasCompra = [["nueva", "Nuevo abastecimiento"], ["historial", "Historial de compras"]];
 
@@ -27,27 +29,31 @@ function formatoCLP(numero) {
 }
 
 export default function Compras({ productoInicial, onVolver, onCompraRegistrada }) {
-  const siguienteClave = useRef(2);
   const [vista, setVista] = useState("nueva");
-  const [lineas, setLineas] = useState([lineaVacia(1, productoInicial)]);
+  const [lineas, setLineas, descartarLineas] = useBorrador("compras", "lineas", [lineaVacia(1, productoInicial)],
+    (filas) => filas.length > 1 || filas.some((fila) => fila.idArticulo || fila.idProveedor || fila.cantidad || fila.costoUnitario || fila.tipo !== "PRODUCTO"));
+  const siguienteClave = useRef(Math.max(1, ...lineas.map((linea) => linea.clave)) + 1);
   const [catalogos, setCatalogos] = useState({ productos: [], insumos: [], proveedores: [] });
+  const propio = buscarProveedorPropio(catalogos.proveedores);
   const [cargando, setCargando] = useState(true);
-  const [guardando, setGuardando] = useState(false);
+  const [guardando, setGuardando] = useBorrador("compras", "envio", false, () => false);
   const [historial, setHistorial] = useState([]);
+  const [paginaHistorial, setPaginaHistorial] = useState(1);
+  const [hayMas, setHayMas] = useState(false);
   const [cargandoHistorial, setCargandoHistorial] = useState(true);
   const [errorHistorial, setErrorHistorial] = useState("");
   const [error, setError] = useState("");
   const [exito, setExito] = useState("");
-  const [abrirProveedor, setAbrirProveedor] = useState(false);
-  const [guardandoProveedor, setGuardandoProveedor] = useState(false);
-  const [nuevoProveedor, setNuevoProveedor] = useState({
+  const [abrirProveedor, setAbrirProveedor] = useBorrador("compras", "proveedorVisible", false, () => false);
+  const [guardandoProveedor, setGuardandoProveedor] = useBorrador("compras", "envioProveedor", false, () => false);
+  const [nuevoProveedor, setNuevoProveedor, descartarProveedor] = useBorrador("compras", "proveedor", {
     rut: "", razonSocial: "", telefono: "", email: ""
-  });
+  }, (proveedor) => Object.values(proveedor).some(Boolean));
 
-async function consultarHistorial(signal) {
+async function consultarHistorial(signal, pagina = 1) {
   try {
     const respuesta = await fetch(
-      "/api/compras/historial", { signal }
+      `/api/compras/historial?pagina=${pagina}`, { signal }
     );
 
     const datos = await respuesta.json();
@@ -58,7 +64,11 @@ async function consultarHistorial(signal) {
       );
     }
 
-    if (!signal?.aborted) setHistorial(datos.movimientos ?? []);
+    if (!signal?.aborted) {
+      setHistorial(datos.movimientos ?? []);
+      setPaginaHistorial(pagina);
+      setHayMas(Boolean(datos.hayMas));
+    }
 
   } catch (error) {
     if (!signal?.aborted) setErrorHistorial(error.message);
@@ -68,10 +78,10 @@ async function consultarHistorial(signal) {
   }
 }
 
-function cargarHistorial() {
+function cargarHistorial(pagina = paginaHistorial) {
   setCargandoHistorial(true);
   setErrorHistorial("");
-  return consultarHistorial();
+  return consultarHistorial(undefined, pagina);
 }
 
   async function cargarCatalogos() {
@@ -273,7 +283,7 @@ function cargarHistorial() {
         <>
           <div className="compras-tarjeta compras-proveedores">
             <div>
-              <h2>Proveedores</h2>
+              <h2><span className="paso-visual" aria-hidden="true">1</span> Proveedor</h2>
               <p>Disponibles: {catalogos.proveedores.length}. Cada línea puede usar un proveedor distinto.</p>
               {catalogos.proveedores.length === 0 && (
                 <p className="compras-advertencia">No hay proveedores: registra uno antes de comprar.</p>
@@ -316,7 +326,7 @@ function cargarHistorial() {
           <form onSubmit={guardarCompra} className="compras-tarjeta modulo-operacion">
             <div className="compras-titulo-lineas">
               <div>
-                <h2>Artículos de la compra</h2>
+                <h2><span className="paso-visual" aria-hidden="true">2</span> Artículos de la compra</h2>
                 <p>El stock se actualizará al confirmar toda la compra.</p>
               </div>
               <button type="button" onClick={agregarLinea} disabled={lineas.length >= 50}>
@@ -334,6 +344,8 @@ function cargarHistorial() {
                 <div key={linea.clave} className="compras-linea">
                   <div className="compras-linea-cabecera">
                     <h3>Artículo {indice + 1}</h3>
+                    {propio && String(propio.ID_PROVEEDOR) !== linea.idProveedor && <button className="secundario" type="button"
+                      disabled={guardando} onClick={() => actualizarLinea(linea.clave, "idProveedor", String(propio.ID_PROVEEDOR))}>Usar producción propia</button>}
                     <button type="button" className="compras-eliminar" disabled={lineas.length === 1}
                       onClick={() => eliminarLinea(linea.clave)}>
                       Quitar artículo
@@ -346,7 +358,7 @@ function cargarHistorial() {
                         <option value="INSUMO">Insumo</option>
                       </select>
                     </label>
-                    <label>{linea.tipo === "PRODUCTO" ? "Producto" : "Insumo"}
+                    <label>{linea.tipo === "PRODUCTO" ? "Producto" : "Insumo"} (obligatorio)
                       <select required value={linea.idArticulo}
                         onChange={(e) => actualizarLinea(linea.clave, "idArticulo", e.target.value)}>
                         <option value="">Selecciona un artículo</option>
@@ -357,7 +369,7 @@ function cargarHistorial() {
                         })}
                       </select>
                     </label>
-                    <label>Proveedor
+                    <label>Proveedor (obligatorio)
                       <select required value={linea.idProveedor}
                         onChange={(e) => actualizarLinea(linea.clave, "idProveedor", e.target.value)}>
                         <option value="">Selecciona un proveedor</option>
@@ -368,13 +380,13 @@ function cargarHistorial() {
                         ))}
                       </select>
                     </label>
-                    <label>Cantidad {articulo ? `(${articulo.CODIGO_UNIDAD})` : ""}
+                    <label>Cantidad obligatoria {articulo ? `(${articulo.CODIGO_UNIDAD})` : ""}
                       <input required type="number" min={decimal ? "0.001" : "1"} step={decimal ? "0.001" : "1"}
                         placeholder={decimal ? "Ej. 2.500" : "Ej. 30"}
                         value={linea.cantidad}
                         onChange={(e) => actualizarLinea(linea.clave, "cantidad", e.target.value)} />
                     </label>
-                    <label>Costo unitario (CLP)
+                    <label>Costo unitario en CLP (obligatorio)
                       <input required type="number" min="0" step="0.01" placeholder="Ej. 300"
                         value={linea.costoUnitario}
                         onChange={(e) => actualizarLinea(linea.clave, "costoUnitario", e.target.value)} />
@@ -388,7 +400,9 @@ function cargarHistorial() {
               );
             })}
 
+            <div className="compras-pie-visual">
             <div className="compras-resumen">
+              <h2><span className="paso-visual" aria-hidden="true">3</span> Total estimado</h2>
               <span>{lineas.length} artículo(s) seleccionados</span>
               <div><span>Total estimado</span><strong>{formatoCLP(totalEstimado)}</strong></div>
             </div>
@@ -397,10 +411,17 @@ function cargarHistorial() {
               El dueño responsable se obtiene de tu sesión iniciada.
             </p>
             <div className="compras-acciones">
-              <button type="button" className="compras-secundario" onClick={onVolver}>Cancelar</button>
+              <button type="button" className="compras-secundario" disabled={guardando || guardandoProveedor} onClick={() => {
+                if (!window.confirm("¿Descartar el abastecimiento y volver a Productos?")) return;
+                descartarLineas();
+                descartarProveedor();
+                setAbrirProveedor(false);
+                onVolver();
+              }}>Cancelar</button>
               <button type="submit" disabled={guardando || catalogos.proveedores.length === 0}>
                 {guardando ? "Registrando..." : "Registrar compra"}
               </button>
+            </div>
             </div>
           </form>
         </>
@@ -413,14 +434,14 @@ function cargarHistorial() {
     <div>
       <h2>Historial de compras</h2>
       <p>
-        Últimos 100 abastecimientos de productos
-        registrados en Oracle.
+        Abastecimientos de productos registrados en Oracle, 100 por página.
+        El abastecimiento de insumos actualiza existencias, costo y proveedor sin generar una línea de historial.
       </p>
     </div>
 
     <button
       type="button"
-      onClick={cargarHistorial}
+      onClick={() => cargarHistorial()}
       disabled={cargandoHistorial}
     >
       {cargandoHistorial
@@ -434,6 +455,13 @@ function cargarHistorial() {
       {errorHistorial}
     </div>
   )}
+  {(paginaHistorial > 1 || hayMas) && <div className="acciones-formulario">
+    <button type="button" className="secundario" disabled={cargandoHistorial || paginaHistorial === 1}
+      onClick={() => cargarHistorial(paginaHistorial - 1)}>Anterior</button>
+    <span>Página {paginaHistorial}</span>
+    <button type="button" className="secundario" disabled={cargandoHistorial || !hayMas}
+      onClick={() => cargarHistorial(paginaHistorial + 1)}>Siguiente</button>
+  </div>}
 
   {cargandoHistorial ? (
     <p role="status">Cargando historial...</p>
@@ -445,7 +473,8 @@ function cargarHistorial() {
         <thead>
           <tr>
             <th>Fecha</th>
-            <th>Producto</th>
+            <th>Tipo</th>
+            <th>Artículo</th>
             <th>Proveedor</th>
             <th>Cantidad</th>
             <th>Costo unitario</th>
@@ -460,6 +489,7 @@ function cargarHistorial() {
 
               <td>{compra.FECHA_COMPRA}</td>
 
+              <td>Producto</td>
               <td>{compra.NOMBRE_PRODUCTO}</td>
 
               <td>{compra.PROVEEDOR}</td>

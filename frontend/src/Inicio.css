@@ -1,19 +1,18 @@
-﻿.inicio { display: grid; gap: clamp(16px, 1.6vw, 28px); }
+.inicio { display: grid; gap: clamp(16px, 1.6vw, 28px); }
 .inicio-portada {
   display: flex; align-items: center; justify-content: space-between; gap: 16px;
   min-height: clamp(190px, 13vw, 250px);
   border-radius: 17px;
   position: relative; isolation: isolate; overflow: hidden;
-  background: linear-gradient(95deg, #f6f2ef 38%, #eee4da);
+  background: linear-gradient(95deg, #fff6e4 38%, #ffeadb);
   padding: clamp(22px, 2.7vw, 50px);
 }
 .inicio-portada::before {
-  content: ""; position: absolute; z-index: -1; top: -34%; right: 3%;
-  height: 164%; aspect-ratio: 3 / 2;
-  background: url("/branding/banner-pasteleria.webp") center / cover no-repeat;
-  mask-image: linear-gradient(90deg, transparent 4%, #000 32%, #000 79%, transparent 100%);
+  content: ""; position: absolute; z-index: -1; top: -3%; right: 17%;
+  height: 105%; aspect-ratio: 3 / 2;
+  background: url("/branding/cafe-torta.svg") center / contain no-repeat;
 }
-.inicio-portada h1 { font: 700 clamp(2.25rem, 4.15vw, 5rem)/1.05 var(--titular); margin: 8px 0; letter-spacing: -.04em; overflow-wrap: anywhere; }
+.inicio-portada h1 { font: 700 clamp(2.1rem, 3.8vw, 3.75rem)/1.06 var(--titular); margin: 5px 0; letter-spacing: -.04em; overflow-wrap: anywhere; }
 .inicio-portada > div { min-width: 0; max-width: 68%; }
 .inicio-marca { color: #835619; font-weight: 700; font-size: .78rem; letter-spacing: .16em; }
 .inicio time { color: var(--tinta); font-size: clamp(.95rem, 1.3vw, 1.25rem); }
@@ -36,7 +35,7 @@
 .inicio-panel h2 { display: flex; align-items: center; gap: 11px; font: 700 clamp(1.35rem, 1.85vw, 2rem)/1.15 var(--titular); margin-bottom: 12px; }
 .inicio-panel h2 svg { color: #946629; width: 28px; height: 28px; flex-basis: 28px; }
 .inicio-panel:has(.inicio-acciones) { background: transparent; box-shadow: none; border: 0; padding: 4px 0; }
-.inicio-panel #inicio-acciones { font: 750 .83rem var(--fuente); letter-spacing: .16em; text-transform: uppercase; }
+.inicio-panel #inicio-acciones { font: 620 1.45rem var(--titular); }
 .inicio-acciones, .inicio-actividad { display: grid; gap: clamp(10px, 1.2vw, 22px); }
 .inicio-acciones { grid-template-columns: repeat(auto-fit, minmax(min(100%, 175px), 1fr)); }
 .inicio-actividad-dueno { grid-template-columns: minmax(0, 1fr) minmax(0, 1.14fr); align-items: stretch; }
@@ -44,6 +43,9 @@
 .inicio-acciones button { display: flex; align-items: center; text-align: start; gap: 8px; min-height: 54px; border-radius: 13px; box-shadow: var(--sombra); }
 .inicio-acciones button svg { color: #8a5a16; }
 .inicio-acciones button svg:last-child { margin-inline-start: auto; width: 16px; flex-basis: 16px; }
+.inicio-acciones .secundario:nth-child(3n+1) { background: #f1e5f8; }
+.inicio-acciones .secundario:nth-child(3n+2) { background: #fff0d0; }
+.inicio-acciones .secundario:nth-child(3n) { background: #e8f4db; }
 .inicio-acciones .inicio-nueva-venta svg { color: #f4dfbd; }
 .inicio-panel > button { margin-top: 14px; border-color: #bd965c; }
 .inicio-lista { list-style: none; }
@@ -59,3 +61,21 @@
 }
 
 
+
+.inicio .inicio-portada { background: radial-gradient(ellipse at 87% 146%, #f9cbd2 0 44%, transparent 44.4%), linear-gradient(105deg,#fff8ea,#fff0e9); border-radius: 25px; border: 1px solid #edd9c0; box-shadow: var(--sombra); }
+.inicio-portada .inicio-saludo { width: fit-content; border-radius: 17px; padding: 3px 12px; margin: 6px 0; background: linear-gradient(105deg,#ffe8e9,#facbd4); font: 650 clamp(1.5rem,3.2vw,3.3rem)/1.12 var(--titular); overflow-wrap: anywhere; }
+.inicio .inicio-indicadores { grid-template-columns: repeat(auto-fit,minmax(min(100%,210px),1fr)); }
+.inicio-actividad .inicio-panel { align-content: start; }
+.inicio .inicio-indicadores .tarjeta-dato { min-height: 156px; align-content: center; }
+.inicio .inicio-actividad .inicio-panel { border-radius: 24px; padding-block: clamp(20px, 2.2cqi, 33px); }
+.inicio-actividad .inicio-panel h2 { font-size: clamp(1.55rem, 2.4cqi, 2.25rem); }
+.inicio-actividad .inicio-panel h2 svg { width: 32px; height: 32px; flex-basis: 32px; }
+.inicio-actividad .inicio-panel > p { font-size: clamp(1rem, 1.35cqi, 1.17rem); font-weight: 700; line-height: 1.45; }
+.inicio-actividad .inicio-lista strong { font-size: 1.05rem; }
+.inicio .inicio-panel-caja { background: #fff3ee url("/branding/registro.svg") right 13px bottom 8px / min(29%,150px) auto no-repeat; padding-right: 28%; }
+.inicio .inicio-panel-stock { background: #faf2ff url("/branding/ingredientes.svg") right 10px bottom 9px / min(31%,190px) auto no-repeat; padding-right: 28%; }
+.inicio .inicio-panel-caja button { background: #252a44; color: white; }
+.inicio-portada h1 { display: flex; align-items: center; gap: 10px; }
+.inicio-portada h1 .inicio-icono { width: 52px; height: 52px; flex: 0 0 52px; border-radius: 36%; background: #ffda92; }
+.inicio-portada h1 .inicio-icono svg { width: 29px; height: 29px; }
+.inicio-panel-stock .stock-pildora { margin-top: 12px; }

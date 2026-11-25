@@ -1,6 +1,6 @@
 const express = require("express");
 const rateLimit = require("express-rate-limit");
-const { autorizar, centavos, fallo, filas, idValido, maximo, procedimiento, salida, unidades } = require("../services/caja-ventas");
+const { autorizar, centavos, fallo, filas, idValido, maximo, nombreCajaPrincipal, procedimiento, salida, unidades } = require("../services/caja-ventas");
 const { abrirTurno } = require("./caja.routes");
 const { generarPdf, nombrePdf, correoComprobante } = require("../services/comprobante");
 const correo = require("../services/correo");
@@ -69,6 +69,11 @@ router.use((req, res, next) => {
 });
 
 router.get("/catalogos", (req, res) => autorizar(req, res, async (c, actor) => {
+  const turnos = await filas(c, `SELECT T.ID_TURNO_CAJA, C.NOMBRE_CAJA
+    FROM TURNO_CAJA T JOIN CAJA_TERMINAL C ON C.ID_CAJA = T.ID_CAJA
+    WHERE T.ESTADO_TURNO = 'ABIERTO' AND C.NOMBRE_CAJA = :nombre
+    AND C.ESTADO_OPERATIVO = 'S' ORDER BY T.ID_TURNO_CAJA`, { nombre: nombreCajaPrincipal });
+  if (!turnos.length) return res.json({ productos: [], metodos: [], turnos });
   const productos = await filas(c, `SELECT P.*, (
     SELECT COUNT(DISTINCT V.ID_VENTA) FROM DETALLE_VENTA D JOIN VENTA V ON V.ID_VENTA = D.ID_VENTA
     WHERE D.ID_PRODUCTO = P.ID_PRODUCTO AND V.ESTADO_VENTA = 'CONFIRMADA'
@@ -80,14 +85,7 @@ router.get("/catalogos", (req, res) => autorizar(req, res, async (c, actor) => {
     return {};
   });
   const metodos = await filas(c, `${metodosSql} ORDER BY NOMBRE_METODO`);
-  const turnos = await filas(c, `SELECT T.ID_TURNO_CAJA, C.NOMBRE_CAJA
-    FROM TURNO_CAJA T JOIN CAJA_TERMINAL C ON C.ID_CAJA = T.ID_CAJA
-    WHERE T.ESTADO_TURNO = 'ABIERTO' ORDER BY C.NOMBRE_CAJA, T.ID_TURNO_CAJA`);
-  const cajas = await filas(c, `SELECT C.ID_CAJA, C.NOMBRE_CAJA, C.UBICACION FROM CAJA_TERMINAL C
-    WHERE C.ESTADO_OPERATIVO = 'S' AND NOT EXISTS (
-      SELECT 1 FROM TURNO_CAJA T WHERE T.ID_CAJA = C.ID_CAJA AND T.ESTADO_TURNO = 'ABIERTO'
-    ) ORDER BY C.NOMBRE_CAJA`);
-  res.json({ productos: productos.map((p) => ({ ...p, VISUAL: presentar(asociaciones[p.ID_PRODUCTO]) })), metodos, turnos, cajas });
+  res.json({ productos: productos.map((p) => ({ ...p, VISUAL: presentar(asociaciones[p.ID_PRODUCTO]) })), metodos, turnos });
 }));
 
 router.get("/", (req, res) => autorizar(req, res, async (c, actor) => {
@@ -211,8 +209,11 @@ async function validarVenta(c, { turnoId, lineas, pagos, totalEsperado }) {
   if (new Set(lineas.map((l) => l.productoId)).size !== lineas.length) {
     return [400, "Usa una única línea por producto"];
   }
-  const [turno] = await filas(c, "SELECT ID_TURNO_CAJA FROM TURNO_CAJA WHERE ID_TURNO_CAJA = :turnoId AND ESTADO_TURNO = 'ABIERTO'", { turnoId });
-  if (!turno) return [409, "Selecciona un turno de caja abierto"];
+  const [turno] = await filas(c, `SELECT T.ID_TURNO_CAJA FROM TURNO_CAJA T
+    JOIN CAJA_TERMINAL C ON C.ID_CAJA = T.ID_CAJA
+    WHERE T.ID_TURNO_CAJA = :turnoId AND T.ESTADO_TURNO = 'ABIERTO'
+      AND C.NOMBRE_CAJA = :nombre AND C.ESTADO_OPERATIVO = 'S'`, { turnoId, nombre: nombreCajaPrincipal });
+  if (!turno) return [409, "Abre un turno en la Caja Principal para vender"];
   const ids = Object.fromEntries(lineas.map(({ productoId }, i) => [`p${i}`, productoId]));
   const productos = await filas(c, `${productosSql} AND P.ID_PRODUCTO IN (${Object.keys(ids).map((id) => `:${id}`).join(", ")})`, ids);
   const porId = new Map(productos.map((p) => [p.ID_PRODUCTO, p]));

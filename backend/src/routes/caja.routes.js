@@ -1,5 +1,5 @@
 const express = require("express");
-const { autorizar, centavos, fallo, filas, idValido, procedimiento, salida } = require("../services/caja-ventas");
+const { autorizar, buscarCajaPrincipal, centavos, fallo, filas, idValido, nombreCajaPrincipal, procedimiento, salida } = require("../services/caja-ventas");
 
 const router = express.Router();
 const turnosSql = `SELECT T.ID_TURNO_CAJA, T.ID_CAJA, C.NOMBRE_CAJA, T.ESTADO_TURNO,
@@ -51,12 +51,35 @@ async function ejecutar(res, c, nombre, binds, codigo, respuesta) {
 }
 
 function abrirTurno(req, res) {
-  return autorizar(req, res, async (c, { actorId }) => {
+  return autorizar(req, res, async (c, { actorId, dueno }) => {
     const { cajaId, efectivoInicial } = req.body ?? {};
-    if (!idValido(cajaId) || !Number.isFinite(centavos(efectivoInicial))) {
-      return fallo(res, 400, "Selecciona una caja y un importe inicial válido");
+    if (!Number.isFinite(centavos(efectivoInicial)) || (cajaId !== undefined && !idValido(cajaId))) {
+      return fallo(res, 400, "Ingresa un importe inicial válido");
     }
-    await ejecutar(res, c, "SAB_ABRIR_CAJA", { actorId, cajaId, efectivoInicial, resultado: salida },
+    let caja = await buscarCajaPrincipal(c);
+    if (cajaId !== undefined && cajaId !== caja?.ID_CAJA) {
+      return fallo(res, 409, "Solo se puede abrir la Caja Principal");
+    }
+    if (!caja) {
+      if (!dueno) return fallo(res, 409, "El dueño debe abrir la Caja Principal por primera vez");
+      try {
+        await procedimiento(c, "SAB_C_CAJA_TERMINAL", {
+          actorId, nombre: nombreCajaPrincipal, ubicacion: null, estado: "S", resultado: salida
+        });
+      } catch (error) {
+        // Consultar por el nombre ?nico tambi?n cubre una creaci?n concurrente o una respuesta perdida.
+        caja = await buscarCajaPrincipal(c);
+        if (!caja) {
+          console.error("Error inicializando Caja Principal:", error.code);
+          return fallo(res, 503, "No se pudo preparar la Caja Principal. Actualiza Caja y vuelve a consultar");
+        }
+      }
+      caja ??= await buscarCajaPrincipal(c);
+    }
+    if (!caja || caja.ESTADO_OPERATIVO !== "S") {
+      return fallo(res, 409, "La Caja Principal está fuera de servicio o no está disponible");
+    }
+    await ejecutar(res, c, "SAB_ABRIR_CAJA", { actorId, cajaId: caja.ID_CAJA, efectivoInicial, resultado: salida },
       201, (turnoId) => ({ turnoId }));
   }, true);
 }
@@ -67,15 +90,20 @@ router.use((req, res, next) => {
 });
 
 router.get("/", (req, res) => autorizar(req, res, async (c, actor) => {
-  const cajas = await filas(c, `SELECT C.ID_CAJA, C.NOMBRE_CAJA, C.UBICACION, C.ESTADO_OPERATIVO,
-      (SELECT COUNT(*) FROM TURNO_CAJA T WHERE T.ID_CAJA = C.ID_CAJA) AS TOTAL_TURNOS
-    FROM CAJA_TERMINAL C
-    WHERE :dueno = 1 OR C.ESTADO_OPERATIVO = 'S' OR EXISTS (
-      SELECT 1 FROM TURNO_CAJA T WHERE T.ID_CAJA = C.ID_CAJA AND T.ESTADO_TURNO = 'ABIERTO'
-    ) ORDER BY C.NOMBRE_CAJA, C.ID_CAJA`, { dueno: actor.dueno });
-  const activos = await filas(c, `${turnosSql} AND T.ESTADO_TURNO = 'ABIERTO'
-    ORDER BY C.NOMBRE_CAJA, T.ID_TURNO_CAJA`, actor);
-  res.json({ cajas, activos });
+  const caja = await buscarCajaPrincipal(c);
+  const activos = caja ? await filas(c, `${turnosSql} AND T.ID_CAJA = :cajaId
+    AND T.ESTADO_TURNO = 'ABIERTO' ORDER BY T.ID_TURNO_CAJA`, { ...actor, cajaId: caja.ID_CAJA }) : [];
+  let resumenDia = { CANTIDAD: 0, TOTAL: 0 };
+  if (caja) {
+    const hoy = new Intl.DateTimeFormat("sv-SE", { timeZone: "America/Santiago" }).format();
+    [resumenDia] = await filas(c, `SELECT COUNT(*) AS CANTIDAD, NVL(SUM(V.TOTAL_VENTA), 0) AS TOTAL
+      FROM VENTA V JOIN TURNO_CAJA T ON T.ID_TURNO_CAJA = V.ID_TURNO_CAJA
+      WHERE T.ID_CAJA = :cajaId AND V.ESTADO_VENTA = 'CONFIRMADA'
+        AND V.FECHA_HORA_VENTA >= TO_TIMESTAMP(:hoy, 'YYYY-MM-DD')
+        AND V.FECHA_HORA_VENTA < TO_TIMESTAMP(:hoy, 'YYYY-MM-DD') + INTERVAL '1' DAY`,
+    { cajaId: caja.ID_CAJA, hoy });
+  }
+  res.json({ caja, activos, resumenDia });
 }));
 
 router.get("/turnos", (req, res) => autorizar(req, res, async (c, actor) => {
@@ -114,13 +142,15 @@ router.get("/turnos/:id", (req, res) => autorizar(req, res, async (c, actor) => 
     ORDER BY V.FECHA_HORA_VENTA DESC, V.ID_VENTA DESC
     OFFSET :desplazamiento ROWS FETCH NEXT 26 ROWS ONLY`,
   { ...actor, turnoId, desplazamiento: (pagina - 1) * 25 });
+  const [resumen] = await filas(c, `SELECT COUNT(*) AS CANTIDAD, NVL(SUM(TOTAL_VENTA), 0) AS TOTAL
+    FROM VENTA WHERE ID_TURNO_CAJA = :turnoId AND ESTADO_VENTA = 'CONFIRMADA'`, { turnoId });
   const [pendientes] = await filas(c, `SELECT COUNT(*) AS BORRADORES FROM VENTA
     WHERE ID_TURNO_CAJA = :turnoId AND ESTADO_VENTA = 'BORRADOR'`, { turnoId });
   const auditoria = await filas(c, `SELECT L.ID_LOG_CAJA, L.TIPO_OPERACION, L.DESCUADRE_TOTAL,
       U.NOMBRE_COMPLETO AS RESPONSABLE, TO_CHAR(L.FECHA_HORA_REGISTRO, 'DD/MM/YYYY HH24:MI:SS') AS FECHA
     FROM LOG_AUDITORIA_CAJA L JOIN USUARIO U ON U.ID_USUARIO = L.ID_USUARIO
     WHERE L.ID_TURNO_CAJA = :turnoId ORDER BY L.ID_LOG_CAJA`, { turnoId });
-  res.json({ turno, pagos, ventas: ventas.slice(0, 25), hayMas: ventas.length > 25,
+  res.json({ turno, pagos, resumen, ventas: ventas.slice(0, 25), hayMas: ventas.length > 25,
     borradores: pendientes.BORRADORES, auditoria });
 }));
 
@@ -134,36 +164,6 @@ router.post("/turnos/:id/cierre", (req, res) => autorizar(req, res, async (c, { 
   }
   await ejecutar(res, c, "SAB_CERRAR_CAJA", { actorId, turnoId, efectivo, tarjeta, transferencia, resultado: salida },
     200, (descuadre) => ({ turnoId, descuadre }));
-}, true));
-
-function guardarCaja(req, res) {
-  return autorizar(req, res, async (c, { actorId, dueno }) => {
-    if (!dueno) return fallo(res, 403, "Solo el dueño puede administrar cajas");
-    const editar = req.params.id !== undefined;
-    const cajaId = Number(req.params.id);
-    const { nombre, ubicacion, estado } = req.body ?? {};
-    if ((editar && !idValido(cajaId)) || typeof nombre !== "string" || !nombre.trim()
-        || Buffer.byteLength(nombre.trim(), "utf8") > 50
-        || (ubicacion != null && (typeof ubicacion !== "string" || Buffer.byteLength(ubicacion.trim(), "utf8") > 100))
-        || !["S", "N"].includes(estado)) {
-      return fallo(res, 400, "Revisa el nombre, la ubicación y el estado de la caja");
-    }
-    const datos = { nombre: nombre.trim(), ubicacion: ubicacion?.trim() || null, estado };
-    if (editar) {
-      await ejecutar(res, c, "SAB_U_CAJA_TERMINAL", { actorId, cajaId, ...datos }, 200, () => ({ cajaId }));
-    } else {
-      await ejecutar(res, c, "SAB_C_CAJA_TERMINAL", { actorId, ...datos, resultado: salida }, 201, (id) => ({ cajaId: id }));
-    }
-  }, true);
-}
-
-router.post("/terminales", guardarCaja);
-router.put("/terminales/:id", guardarCaja);
-router.delete("/terminales/:id", (req, res) => autorizar(req, res, async (c, { actorId, dueno }) => {
-  if (!dueno) return fallo(res, 403, "Solo el dueño puede administrar cajas");
-  const cajaId = Number(req.params.id);
-  if (!idValido(cajaId)) return fallo(res, 400, "Identificador inválido");
-  await ejecutar(res, c, "SAB_D_CAJA_TERMINAL", { actorId, cajaId }, 200, () => ({ cajaId }));
 }, true));
 
 module.exports = { router, abrirTurno };

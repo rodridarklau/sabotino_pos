@@ -20,6 +20,12 @@ before(async () => {
       if (sql.includes("FROM PRODUCTO")) return { rows: escenario.productos };
       if (sql.includes("FROM INSUMO")) return { rows: escenario.insumos };
       if (sql.includes("FROM AJUSTE_INVENTARIO")) return { rows: escenario.historial };
+      if (sql.startsWith("SELECT PERMITE_DECIMALES")) return { rows: binds.unidadId === 4 ? [{ PERMITE_DECIMALES: "N" }] : [] };
+      if (sql.startsWith("SELECT ID_PROVEEDOR")) return { rows: binds.proveedorId === 5 ? [{ ID_PROVEEDOR: 5 }] : [] };
+      if (sql.startsWith("BEGIN SAB_C_INSUMO")) {
+        if (escenario.error) throw escenario.error;
+        return { outBinds: { nuevoId: escenario.resultado } };
+      }
       if (sql.startsWith("BEGIN SAB_AJUSTAR_STOCK")) {
         if (escenario.error) throw escenario.error;
         return { outBinds: { resultado: escenario.resultado } };
@@ -74,6 +80,47 @@ function ajustar(datos = {}) {
 function escrituras() {
   return llamadas.filter(({ sql }) => sql.startsWith("BEGIN"));
 }
+
+function crearInsumo(datos = {}) {
+  return fetch(`${url}/insumos`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ nombre: " Harina ", unidadId: 4, proveedorId: 5, costo: 2.55,
+      stockInicial: 4, stockCritico: 1, actorId: 999, ...datos })
+  });
+}
+
+test("alta de insumo usa los nueve parámetros y el actor de la sesión", async () => {
+  const respuesta = await crearInsumo({ estado: "N" });
+  assert.equal(respuesta.status, 201);
+  assert.deepEqual(await respuesta.json(), { estado: "OK", idInsumo: 42 });
+  assert.equal(escrituras()[0].sql.replace(/\s+/g, " "),
+    "BEGIN SAB_C_INSUMO(:actorId, :unidadId, :proveedorId, :nombre, :costo, :stockInicial, :stockCritico, :estado, :nuevoId); END;");
+  assert.deepEqual(escrituras()[0].binds, { actorId: 7, unidadId: 4, proveedorId: 5, nombre: "Harina", costo: 2.55,
+    stockInicial: 4, stockCritico: 1, estado: "N", nuevoId: { dir: oracledb.BIND_OUT, type: oracledb.NUMBER } });
+  await fetch(url);
+  await fetch(`${url}?incluirInactivos=1`);
+  const consultas = llamadas.filter(({ sql }) => sql.includes("FROM INSUMO"));
+  assert.match(consultas[0].sql, /WHERE I\.ESTADO_ACTIVO = 'S'/);
+  assert.doesNotMatch(consultas[1].sql, /WHERE I\.ESTADO_ACTIVO/);
+});
+
+test("alta valida permisos, referencias, importes y errores sin exponer Oracle", async () => {
+  escenario.usuario.rol = "VENDEDOR";
+  assert.equal((await crearInsumo()).status, 403);
+  escenario.usuario.rol = "DUENO";
+  escenario.permitido = 0;
+  assert.equal((await crearInsumo()).status, 403);
+  escenario.permitido = 1;
+  for (const datos of [{ nombre: " " }, { costo: -1 }, { costo: 1.234 }, { stockCritico: 0.1234 },
+    { stockInicial: 1.5 }, { unidadId: 9 }, { proveedorId: 9 }]) {
+    assert.equal((await crearInsumo(datos)).status, 400);
+  }
+  assert.equal(escrituras().length, 0);
+  escenario.error = { errorNum: 1 };
+  assert.equal((await crearInsumo()).status, 409);
+  escenario.error = { code: "NJS-500" };
+  assert.equal((await (await crearInsumo()).json()).estado, "INCIERTO");
+});
 
 test("consulta artículos, tipos y la siguiente página de historial", async () => {
   const respuesta = await fetch(url);

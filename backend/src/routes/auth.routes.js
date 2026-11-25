@@ -77,11 +77,11 @@ router.post("/configurar-dueno", async (req, res) => {
       nombre.length > 100 ||
       usuario.length < 3 ||
       usuario.length > 50 ||
-      password.length < 12 ||
+      password.length < 8 ||
       password.length > 128
     ) {
       return res.status(400).json({
-        mensaje: "Revisa el RUT, nombre, usuario y contraseña. La contraseña debe tener entre 12 y 128 caracteres."
+        mensaje: "Revisa el RUT, nombre, usuario y contraseña. La contraseña debe tener entre 8 y 128 caracteres."
       });
     }
 

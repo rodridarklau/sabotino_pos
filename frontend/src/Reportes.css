@@ -29,7 +29,7 @@
 }
 .reportes-filtros {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 145px), 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 140px), 1fr));
   gap: 10px;
 }
 .reportes-filtros label { min-width: 0; display: grid; gap: 5px; color: var(--reporte-suave); font-size: .84rem; font-weight: 650; }
@@ -107,7 +107,7 @@
   border-radius: 12px;
   padding: clamp(12px, 1.6vw, 20px);
 }
-.reportes-grafico canvas { display: block; width: 100%; height: clamp(208px, 21vw, 305px); }
+.reportes-grafico canvas { display: block; width: 100%; height: clamp(208px, 28cqi, 420px); }
 .reportes-leyenda { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; list-style: none; padding: 0; margin: 8px 0; }
 .reportes-leyenda span, .reportes-leyenda li { display: flex; gap: 6px; align-items: center; font-size: .8rem; }
 .reportes-leyenda i { width: 10px; height: 10px; border-radius: 3px; flex: 0 0 10px; }
@@ -126,6 +126,6 @@
 .reportes-paginacion { justify-content: flex-end; }
 .reportes details summary { cursor: pointer; font-weight: 650; margin-block: 5px; }
 
-@media (max-width: 900px) {
+@container (max-width: 740px) {
   .reportes-graficos-dobles { grid-template-columns: minmax(0, 1fr); }
 }

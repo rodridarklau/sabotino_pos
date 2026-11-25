@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import "./Inventario.css";
-import { CabeceraModulo, EtiquetaEstado } from "./Presentacion.jsx";
+import { CabeceraModulo, EtiquetaEstado, TarjetaDato } from "./Presentacion.jsx";
+import NuevoInsumo from "./NuevoInsumo.jsx";
+import { useBorrador } from "./borradores.js";
 
 const api = "/api/inventario";
 const maximoMilesimas = 999999999999;
@@ -28,13 +30,19 @@ function normalizarArticulos({ productos, insumos }) {
   ];
 }
 
-export default function Inventario({ onAjusteRegistrado, busquedaInicial = "" }) {
+export default function Inventario({ onAjusteRegistrado, busquedaInicial = "", soloInsumos = false, ajusteInicial = null,
+  borradorInsumo, cambiarBorrador, crearProveedor }) {
   const [busqueda, setBusqueda] = useState(busquedaInicial);
   const [filtro, setFiltro] = useState("TODOS");
-  const [formulario, setFormulario] = useState(formularioVacio);
+  const modulo = soloInsumos ? "insumos" : "inventario";
+  const [formulario, setFormulario] = useBorrador(modulo, "ajuste", {
+    ...formularioVacio, clave: ajusteInicial ? `PRODUCTO:${ajusteInicial.id}` : ""
+  }, (datos) => Object.values(datos).some(Boolean));
+  const [sentido, setSentido] = useBorrador(modulo, "sentido", ajusteInicial?.sentido ?? 0, () => false);
   const [confirmacion, setConfirmacion] = useState(null);
-  const [guardando, setGuardando] = useState(false);
+  const [guardando, setGuardando] = useBorrador(modulo, "envio-ajuste", false, () => false);
   const [mensaje, setMensaje] = useState("");
+  const [alta, setAlta] = useState("");
   const [errorAjuste, setErrorAjuste] = useState("");
   const [revision, setRevision] = useState(0);
   const [pagina, setPagina] = useState(1);
@@ -45,7 +53,7 @@ export default function Inventario({ onAjusteRegistrado, busquedaInicial = "" })
 
   useEffect(() => {
     const controlador = new AbortController();
-    consultar("", controlador.signal).then(
+    consultar(soloInsumos ? "?incluirInactivos=1" : "", controlador.signal).then(
       (datos) => {
         if (!controlador.signal.aborted) {
           setCatalogo({ revision, articulos: normalizarArticulos(datos), tipos: datos.tipos });
@@ -56,9 +64,10 @@ export default function Inventario({ onAjusteRegistrado, busquedaInicial = "" })
       }
     );
     return () => controlador.abort();
-  }, [revision]);
+  }, [revision, soloInsumos]);
 
   useEffect(() => {
+    if (soloInsumos) return;
     const controlador = new AbortController();
     consultar(`/historial?pagina=${pagina}`, controlador.signal).then(
       (datos) => {
@@ -69,12 +78,13 @@ export default function Inventario({ onAjusteRegistrado, busquedaInicial = "" })
       }
     );
     return () => controlador.abort();
-  }, [pagina, revision]);
+  }, [pagina, revision, soloInsumos]);
 
   const cargandoCatalogo = catalogo?.revision !== revision;
   const cargandoHistorial = historial?.revision !== revision || historial?.pagina !== pagina;
-  const articulos = catalogo?.articulos ?? [];
-  const tipos = catalogo?.tipos ?? [];
+  const articulos = (catalogo?.articulos ?? []).filter((articulo) => !soloInsumos || articulo.tipo === "INSUMO");
+  const activos = articulos.filter((articulo) => articulo.ESTADO_ACTIVO !== "N");
+  const tipos = (catalogo?.tipos ?? []).filter((tipo) => !sentido || tipo.FACTOR_OPERACION === sentido);
   const seleccionado = articulos.find((articulo) => articulo.clave === formulario.clave);
   const texto = busqueda.trim().toLocaleLowerCase();
   const visibles = articulos.filter((articulo) =>
@@ -95,7 +105,8 @@ export default function Inventario({ onAjusteRegistrado, busquedaInicial = "" })
     setErrorAjuste("");
   }
 
-  function elegirArticulo(articulo) {
+  function elegirArticulo(articulo, factor) {
+    setSentido(factor);
     setFormulario({ ...formularioVacio, clave: articulo.clave });
     setMensaje("");
     setErrorAjuste("");
@@ -172,48 +183,67 @@ export default function Inventario({ onAjusteRegistrado, busquedaInicial = "" })
   const bloqueado = guardando || Boolean(confirmacion);
 
   return (
-    <div className="inventario modulo">
-      <CabeceraModulo modulo="inventario" titulo="Inventario" descripcion="Consulta existencias y revisa los movimientos de stock.">
+    <div className={`inventario modulo ${soloInsumos ? "inventario-insumos" : "inventario-general"}`}>
+      <CabeceraModulo modulo={soloInsumos ? "insumos" : "inventario"} titulo={soloInsumos ? "Insumos" : "Inventario"}
+        descripcion={soloInsumos ? "Consulta las materias primas y ajusta sus existencias." : "Consulta existencias y revisa los movimientos de stock."}>
         <button className="secundario" type="button" onClick={actualizar}
-          disabled={bloqueado || cargandoCatalogo || cargandoHistorial}>Actualizar</button>
+          disabled={bloqueado || cargandoCatalogo || (!soloInsumos && cargandoHistorial)}>Actualizar</button>
+        {soloInsumos && !borradorInsumo && <button type="button" disabled={bloqueado} onClick={() => {
+          setAlta("");
+          cambiarBorrador({ nombre: "", unidadId: "", proveedorId: "", costo: "0", stockInicial: "0", stockCritico: "0", estado: "S" });
+        }}>+ Nuevo insumo</button>}
       </CabeceraModulo>
 
-      <section className="panel">
+      {soloInsumos && alta && <p className="mensaje-exito" role="status">{alta}</p>}
+      {soloInsumos && borradorInsumo && <NuevoInsumo datos={borradorInsumo} cambiar={cambiarBorrador}
+        cancelar={() => cambiarBorrador(null)} crearProveedor={crearProveedor} revisarExistencias={actualizar}
+        alGuardar={(id) => {
+          setAlta(`Insumo registrado correctamente (ID ${id}).`);
+          setBusqueda(borradorInsumo.nombre.trim());
+          cambiarBorrador(null);
+          actualizar();
+        }} />}
+      {!cargandoCatalogo && !catalogo?.error && <dl className="resumen-modulo">
+        <TarjetaDato titulo="Artículos activos" tono="dorado" arte="ingredientes" icono="M4 7h16v13H4z M3 4h18v3H3z">{activos.length}</TarjetaDato>
+        <TarjetaDato titulo="En stock crítico" tono="lavanda" arte="abastecimiento" icono="M12 3 2 20h20z M12 9v4m0 3h.01">{activos.filter((a) => a.STOCK_ACTUAL <= a.STOCK_CRITICO).length}</TarjetaDato>
+      </dl>}
+      <div className="inventario-distribucion">
+      <section className={soloInsumos ? "panel insumos-existencias" : "panel"}>
         <h2>Existencias</h2>
-        {!cargandoCatalogo && !catalogo?.error && <dl className="modulo-metricas">
-          <div><dt>Artículos activos</dt><dd>{articulos.length}</dd></div>
-          <div><dt>En stock crítico</dt><dd>{articulos.filter((a) => a.STOCK_ACTUAL <= a.STOCK_CRITICO).length}</dd></div>
-        </dl>}
         <div className="inventario-filtros campos-producto">
           <label>Buscar por nombre o código de barras
-            <input type="search" value={busqueda} onChange={(evento) => setBusqueda(evento.target.value)} />
+            <input type="search" placeholder="Buscar artículo…" value={busqueda} onChange={(evento) => setBusqueda(evento.target.value)} />
           </label>
-          <label>Tipo de artículo
+          {!soloInsumos && <label>Tipo de artículo
             <select value={filtro} onChange={(evento) => setFiltro(evento.target.value)}>
               <option value="TODOS">Todos</option>
               <option value="PRODUCTO">Productos</option>
               <option value="INSUMO">Insumos</option>
             </select>
-          </label>
+          </label>}
         </div>
         {cargandoCatalogo && <p role="status">Consultando existencias…</p>}
         {!cargandoCatalogo && catalogo?.error && <p role="alert" className="error">{catalogo.error}</p>}
         <div className="tabla-contenedor" tabIndex={0} role="region" aria-label="Existencias">
-          <table aria-label="Existencias de artículos activos">
+          <table aria-label={soloInsumos ? "Existencias de insumos" : "Existencias de artículos activos"}>
             <thead><tr><th>Artículo</th><th>Tipo</th><th>Unidad</th><th>Stock actual</th><th>Stock crítico</th><th>Ajuste</th></tr></thead>
             <tbody>
               {visibles.map((articulo) => (
                 <tr key={articulo.clave}>
-                  <td>{articulo.nombre}</td>
+                  <td>{articulo.nombre} {articulo.ESTADO_ACTIVO === "N" && <EtiquetaEstado tono="neutro">Inactivo</EtiquetaEstado>}</td>
                   <td><EtiquetaEstado tono={articulo.tipo === "PRODUCTO" ? "neutro" : "acento"}>{nombresTipo[articulo.tipo]}</EtiquetaEstado></td>
                   <td>{articulo.CODIGO_UNIDAD}</td>
                   <td>
                     {formatoCantidad.format(articulo.STOCK_ACTUAL)}
-                    {articulo.STOCK_ACTUAL <= articulo.STOCK_CRITICO && <EtiquetaEstado tono="alerta">Stock bajo</EtiquetaEstado>}
+                    {articulo.ESTADO_ACTIVO !== "N" && articulo.STOCK_ACTUAL <= articulo.STOCK_CRITICO && <EtiquetaEstado tono="alerta">Stock bajo</EtiquetaEstado>}
                   </td>
                   <td>{formatoCantidad.format(articulo.STOCK_CRITICO)}</td>
-                  <td><button type="button" disabled={bloqueado || cargandoCatalogo}
-                    onClick={() => elegirArticulo(articulo)}>Ajustar</button></td>
+                  <td>{articulo.ESTADO_ACTIVO === "N" ? "—" : <div className="acciones-formulario">
+                    <button type="button" disabled={bloqueado || cargandoCatalogo}
+                      onClick={() => elegirArticulo(articulo, 1)}>Añadir stock</button>
+                    <button className="secundario" type="button" disabled={bloqueado || cargandoCatalogo}
+                      onClick={() => elegirArticulo(articulo, -1)}>Quitar stock</button>
+                  </div>}</td>
                 </tr>
               ))}
             </tbody>
@@ -223,19 +253,19 @@ export default function Inventario({ onAjusteRegistrado, busquedaInicial = "" })
       </section>
 
       <section className="panel modulo-operacion">
-        <h2>Registrar ajuste</h2>
+        <h2>{sentido === 1 ? "Añadir stock" : sentido === -1 ? "Quitar stock" : "Registrar ajuste"}</h2>
         <p id="ayuda-ajuste" className="modulo-ayuda">Los ingresos suman existencias. Las salidas, incluidas las mermas, las reducen.</p>
         <form onSubmit={prepararAjuste} aria-describedby={errorAjuste ? "ayuda-ajuste error-ajuste" : "ayuda-ajuste"}>
           <fieldset className="campos-producto inventario-campos" disabled={bloqueado || cargandoCatalogo || Boolean(catalogo?.error)}>
-            <label>Artículo
+            <label>Artículo (obligatorio)
               <select name="clave" required value={seleccionado?.clave ?? ""} onChange={cambiarCampo}>
                 <option value="">Selecciona un artículo</option>
-                {articulos.map((articulo) => <option key={articulo.clave} value={articulo.clave}>
+                {activos.map((articulo) => <option key={articulo.clave} value={articulo.clave}>
                   {articulo.nombre} ({nombresTipo[articulo.tipo]})
                 </option>)}
               </select>
             </label>
-            <label>Tipo de ajuste
+            <label>Tipo de ajuste (obligatorio)
               <select name="tipoAjusteId" required value={formulario.tipoAjusteId} onChange={cambiarCampo}>
                 <option value="">Selecciona un tipo de ajuste</option>
                 {tipos.map((tipo) => <option key={tipo.ID_TIPO_AJUSTE} value={tipo.ID_TIPO_AJUSTE}>
@@ -243,7 +273,7 @@ export default function Inventario({ onAjusteRegistrado, busquedaInicial = "" })
                 </option>)}
               </select>
             </label>
-            <label>Cantidad {seleccionado && `(${seleccionado.CODIGO_UNIDAD})`}
+            <label>Cantidad obligatoria {seleccionado && `(${seleccionado.CODIGO_UNIDAD})`}
               <input ref={campoCantidad} name="cantidad" type="number" required
                 min={seleccionado?.PERMITE_DECIMALES === "N" ? "1" : "0.001"}
                 max="999999999.999" step={seleccionado?.PERMITE_DECIMALES === "N" ? "1" : "0.001"}
@@ -252,7 +282,14 @@ export default function Inventario({ onAjusteRegistrado, busquedaInicial = "" })
             {seleccionado?.tipo === "PRODUCTO" && <label>Observación (opcional)
               <input name="observacion" maxLength={250} value={formulario.observacion} onChange={cambiarCampo} />
             </label>}
-            <div><button type="submit">Revisar ajuste</button></div>
+            <div className="acciones-formulario">
+              <button type="submit">Revisar ajuste</button>
+              <button type="button" className="secundario" onClick={() => {
+                setFormulario(formularioVacio);
+                setSentido(0);
+                setErrorAjuste("");
+              }}>Limpiar ajuste</button>
+            </div>
           </fieldset>
         </form>
         {confirmacion && (
@@ -272,8 +309,9 @@ export default function Inventario({ onAjusteRegistrado, busquedaInicial = "" })
         {mensaje && <p className="mensaje-exito" role="status">{mensaje}</p>}
         {errorAjuste && <p id="error-ajuste" className="error" role="alert">{errorAjuste}</p>}
       </section>
+      </div>
 
-      <section className="panel">
+      {!soloInsumos && <section className="panel">
         <h2>Historial de ajustes de productos</h2>
         {cargandoHistorial && <p role="status">Consultando historial…</p>}
         {!cargandoHistorial && historial?.error && <p className="error" role="alert">{historial.error}</p>}
@@ -303,7 +341,7 @@ export default function Inventario({ onAjusteRegistrado, busquedaInicial = "" })
               onClick={() => setPagina(pagina + 1)}>Siguiente</button>
           </div>
         )}
-      </section>
+      </section>}
     </div>
   );
 }

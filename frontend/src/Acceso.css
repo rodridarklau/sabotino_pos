@@ -1,14 +1,14 @@
 .acceso-pantalla {
   display: grid; place-content: center; grid-template-columns: minmax(0, 440px);
   min-height: 100dvh; padding: clamp(16px, 4vw, 48px);
-  background: radial-gradient(ellipse at 20% 5%, #ead9bf, transparent 58%), var(--crema);
+  background: radial-gradient(ellipse at 20% 5%, #f8dcd5, transparent 58%), #fff8ee;
 }
 .acceso-pantalla.acceso-identidad { grid-template-columns: minmax(0, 400px) minmax(0, 440px); }
 .acceso-marca {
   display: grid; place-items: center; min-height: 300px; padding: clamp(20px, 5vw, 55px);
   border-radius: 18px 0 0 18px; color: var(--marron-fuerte);
-  background: radial-gradient(circle at 45% 45%, #f6ecda, #e4cfae);
-  border: 1px solid #d4bc95;
+  background: radial-gradient(circle at 45% 45%, #41465e, #252a44);
+  border: 1px solid #252a44;
 }
 .acceso-marca img { width: min(100%, 265px); height: auto; display: block; }
 .acceso-tarjeta {

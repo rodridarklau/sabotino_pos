@@ -1,13 +1,17 @@
 const express = require("express");
 const oracledb = require("oracledb");
 const { obtenerConexion } = require("../config/database");
-const { PRODUCTOS_ACTIVOS, INSUMOS_ACTIVOS } = require("../config/catalogo-stock");
+const { PRODUCTOS_ACTIVOS, INSUMOS, INSUMOS_ACTIVOS } = require("../config/catalogo-stock");
 
 const router = express.Router();
 const opciones = { outFormat: oracledb.OUT_FORMAT_OBJECT };
 const maximoMilesimas = 999999999999;
 const paginaHistorial = 50;
 const tiposSql = "SELECT ID_TIPO_AJUSTE, NOMBRE_TIPO_AJUSTE, FACTOR_OPERACION FROM TIPO_AJUSTE_STOCK";
+const altasEnCurso = new Set();
+const esId = (id) => Number.isSafeInteger(id) && id > 0;
+const decimalValido = (valor, escala) => typeof valor === "number" && valor >= 0 &&
+  Number.isSafeInteger(Math.round(valor * escala)) && valor === Math.round(valor * escala) / escala;
 
 const erroresAjuste = new Map([
   [20001, [403, "El usuario o su rol está inactivo"]],
@@ -77,7 +81,8 @@ router.get("/", async (req, res) => {
       return responderError(res, 403, "El usuario de la sesión ya no tiene acceso al inventario");
     }
     const productos = await consultar(conexion, `${PRODUCTOS_ACTIVOS} ORDER BY P.NOMBRE_PRODUCTO, P.ID_PRODUCTO`);
-    const insumos = await consultar(conexion, `${INSUMOS_ACTIVOS} ORDER BY I.NOMBRE_INSUMO, I.ID_INSUMO`);
+    const consultaInsumos = req.query.incluirInactivos === "1" ? INSUMOS : INSUMOS_ACTIVOS;
+    const insumos = await consultar(conexion, `${consultaInsumos} ORDER BY I.NOMBRE_INSUMO, I.ID_INSUMO`);
     const tipos = await consultar(conexion, `${tiposSql} ORDER BY ID_TIPO_AJUSTE`);
     res.json({ estado: "OK", productos, insumos, tipos });
   } catch (error) {
@@ -120,6 +125,57 @@ router.get("/historial", async (req, res) => {
     responderError(res, 500, "No se pudo consultar el historial de ajustes");
   } finally {
     await cerrarConexion(conexion);
+  }
+});
+
+router.post("/insumos", async (req, res) => {
+  const { unidadId, proveedorId, nombre, costo, stockInicial, stockCritico, estado = "S" } = req.body ?? {};
+  if (typeof nombre !== "string" || !nombre.trim()) return responderError(res, 400, "Ingresa el nombre del insumo");
+  if (!esId(unidadId) || !esId(proveedorId)) return responderError(res, 400, "Selecciona una unidad y un proveedor válidos");
+  if (!decimalValido(costo, 100)) return responderError(res, 400, "Ingresa un costo no negativo con hasta dos decimales");
+  if (![stockInicial, stockCritico].every((stock) => decimalValido(stock, 1000) && Math.round(stock * 1000) <= maximoMilesimas)) {
+    return responderError(res, 400, "Ingresa existencias no negativas con hasta tres decimales");
+  }
+  if (!["S", "N"].includes(estado)) return responderError(res, 400, "Selecciona un estado válido");
+
+  const actorId = req.session.usuario.id;
+  if (altasEnCurso.has(actorId)) return responderError(res, 409, "Ya hay un alta en curso. Revisa el listado antes de repetirla", "INCIERTO");
+  altasEnCurso.add(actorId);
+  let conexion;
+  let enviado = false;
+  try {
+    conexion = await obtenerConexion();
+    if (!await validarDueno(conexion, actorId)) return responderError(res, 403, "Solo el dueño activo puede registrar insumos");
+    const [unidad] = await consultar(conexion, "SELECT PERMITE_DECIMALES FROM UNIDAD_MEDIDA WHERE ID_UNIDAD = :unidadId", { unidadId });
+    if (!unidad) return responderError(res, 400, "La unidad seleccionada ya no existe");
+    if (unidad.PERMITE_DECIMALES === "N" && ![stockInicial, stockCritico].every(Number.isInteger)) {
+      return responderError(res, 400, "La unidad seleccionada requiere existencias enteras");
+    }
+    const [proveedor] = await consultar(conexion, "SELECT ID_PROVEEDOR FROM PROVEEDOR WHERE ID_PROVEEDOR = :proveedorId", { proveedorId });
+    if (!proveedor) return responderError(res, 400, "El proveedor seleccionado ya no existe");
+    enviado = true;
+    const { outBinds } = await conexion.execute(
+      `BEGIN SAB_C_INSUMO(:actorId, :unidadId, :proveedorId, :nombre, :costo,
+        :stockInicial, :stockCritico, :estado, :nuevoId); END;`,
+      { actorId, unidadId, proveedorId, nombre: nombre.trim(), costo, stockInicial, stockCritico, estado,
+        nuevoId: { dir: oracledb.BIND_OUT, type: oracledb.NUMBER } }
+    );
+    if (!esId(outBinds?.nuevoId)) throw new Error("Alta sin identificador");
+    res.status(201).json({ estado: "OK", idInsumo: outBinds.nuevoId });
+  } catch (error) {
+    const numero = error.errorNum;
+    if ([20001, 20002, 20003].includes(numero)) return responderError(res, 403, "Solo el dueño activo puede registrar insumos");
+    if (numero === 1) return responderError(res, 409, "Ya existe un insumo con ese nombre");
+    if (numero === 2291) return responderError(res, 409, "La unidad o el proveedor ya no está disponible");
+    if (numero === 12899) return responderError(res, 400, "El nombre del insumo es demasiado largo");
+    if ([1438, 6502].includes(numero)) return responderError(res, 422, "Un valor supera el tamaño permitido. Revisa el nombre y los importes");
+    console.error("Error registrando insumo:", error.code ?? numero);
+    if (numero >= 20000 && numero <= 20999) return responderError(res, 422, "El registro fue rechazado. Revisa los datos del insumo");
+    if (enviado) return responderError(res, 503, "No se pudo confirmar el alta. Comprueba el listado antes de volver a guardar", "INCIERTO");
+    responderError(res, 500, "No se pudo preparar el registro del insumo");
+  } finally {
+    await cerrarConexion(conexion);
+    altasEnCurso.delete(actorId);
   }
 });
 

@@ -32,3 +32,79 @@
 .caja table input {
   width: 9rem;
 }
+.caja-jornada { display: grid; grid-template-columns: minmax(0, 1fr); }
+.app .caja-operacion { display: flex; flex-direction: column; min-width: 0; padding: 0; background: #fff9f0; }
+.caja-portada {
+  overflow: clip; border-radius: var(--radio) 0 0 var(--radio);
+  position: relative;
+  isolation: isolate;
+  min-height: clamp(290px, 23vw, 382px);
+  padding: clamp(20px, 2.4vw, 42px) clamp(15px, 1.6vw, 30px);
+  display: flex;
+  align-items: center;
+  background: radial-gradient(ellipse at 82% 40%, #f8d8b4, #fff2df 53%, #fff7e9 76%);
+}
+.caja-vitrina { position: absolute; z-index: -1; right: -1%; bottom: -2%; width: 61%; height: auto; max-height: 105%; object-fit: contain; object-position: right bottom; }
+.caja-portada-contenido { display: grid; gap: clamp(14px, 1.6vw, 25px); justify-items: start; }
+.caja-titulo { display: flex; align-items: center; gap: clamp(8px, 1vw, 18px); }
+.caja-titulo img { width: clamp(62px, 8vw, 125px); height: auto; flex: none; }
+.caja-titulo h1 { font: 650 clamp(2.8rem, 4.4vw, 5rem)/.92 var(--titular); letter-spacing: -.025em; color: #252a44; }
+.caja-lema { font: 590 clamp(1rem, 1.7vw, 1.65rem)/1.2 var(--titular); color: #833f47; padding: 7px 14px; background: #ffd0cd; border-radius: 36% 42% 32% 25% / 21% 34% 23% 36%; }
+.caja-estado { display: inline-flex; align-items: center; gap: 8px; min-height: 32px; border-radius: 50rem; padding: 5px 14px; background: #f6a1aa; color: #592b3b; font-weight: 900; white-space: nowrap; }
+.caja-portada .caja-estado { font-size: clamp(.96rem, 1.3vw, 1.3rem); min-height: 43px; }
+.caja-estado[data-abierto="true"] { background: #c8e7b9; color: #254b32; }
+.app .caja-apertura {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+  gap: clamp(12px, 2.4vw, 42px);
+  align-items: center;
+  padding: clamp(18px, 2vw, 32px);
+  background: radial-gradient(ellipse at bottom left, #f9cbd0, #ffe8e8 55%, #fff0eb);
+  border: 1px solid #f7d2cb;
+  border-radius: 24px;
+}
+.caja-operacion > .caja-apertura, .caja-en-marcha { flex: 1; margin: 0 clamp(10px, 1.2vw, 22px) clamp(10px, 1.2vw, 22px); }
+.caja-en-marcha { background: #edf5e4; padding: 20px; border-radius: 24px; }
+.caja-en-marcha .acciones-formulario { margin-top: 12px; }
+.caja-ilustracion { display: block; width: min(100%, 225px); height: auto; margin: auto; }
+.caja-apertura form { border-left: 2px solid #f5c4c6; padding-left: clamp(12px, 2.1vw, 36px); min-width: 0; }
+.app .caja-apertura h2 { font: 650 clamp(1.65rem, 2.35vw, 2.6rem)/1 var(--titular); color: #252a44; }
+.caja-apertura form > p { color: #505367; margin-top: 7px; font-weight: 650; }
+.caja-apertura form > .campos-producto { margin-top: 16px; }
+.caja-apertura label { font-size: .97rem; font-weight: 850; }
+.caja-importe { display: flex; align-items: center; gap: 10px; border-radius: 50rem; padding: 0 15px; background: #fffefa; border: 2px solid #efd4c6; font: 650 1.55rem var(--titular); }
+.caja-importe > span { color: #84521c; }
+.caja-apertura .caja-importe input { min-width: 0; width: 100%; font: inherit; border: 0; border-radius: 50rem; background: transparent; padding: 6px 0; }
+.caja-apertura form > button { display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%; min-height: 55px; margin-top: 14px; border-radius: 50rem; font: 600 clamp(.95rem, 1.37vw, 1.34rem)/1.12 var(--titular); }
+.caja-apertura button > span { display: grid; place-items: center; width: 31px; height: 31px; flex: none; border-radius: 50%; background: #ffc96f; color: #252a44; }
+.caja-opciones { gap: 6px; }
+.caja-opciones button { font-size: .79rem; }
+.ventas-recibo .acciones-formulario { margin-top: 12px; }
+@media (max-width: 480px) {
+  .caja-portada { min-height: 315px; align-items: start; }
+  .caja-vitrina { width: 64%; max-height: 59%; }
+  .caja-titulo h1 { font-size: 2.65rem; }
+  .caja-portada .caja-estado { min-height: 33px; }
+  .app .caja-apertura { grid-template-columns: minmax(0, 1fr); gap: 6px; }
+  .caja-ilustracion { width: 84px; margin: 0; }
+  .caja-apertura form { padding-left: 0; border: 0; }
+}
+
+.caja-jornada .caja-operacion { display: grid; grid-template-columns: minmax(0, 1.12fr) minmax(0, 1fr); align-items: stretch; grid-template-rows: 1fr auto; }
+.caja-jornada .caja-portada { min-height: clamp(280px, 54dvh, 520px); }
+.caja-jornada .caja-titulo h1 { font-size: clamp(2.8rem, 7.2cqi, 5.35rem); }
+.caja-jornada .caja-apertura, .caja-jornada .caja-en-marcha { margin: 14px; }
+.caja-jornada .caja-apertura { grid-template-columns: minmax(0, .65fr) minmax(0, 2fr); gap: clamp(10px, 1.5cqi, 24px); }
+.caja-jornada .caja-apertura form > p { font-size: clamp(1rem, 1.4cqi, 1.17rem); }
+.caja-jornada .caja-apertura form > button { min-height: 59px; }
+.caja-jornada .caja-en-marcha { align-content: center; padding: clamp(20px, 3cqi, 44px); }
+.caja-jornada .caja-en-marcha h2 { font-size: clamp(1.6rem, 3cqi, 2.35rem); }
+.caja-jornada .caja-opciones { grid-column: 1 / -1; padding: 10px 18px; border-top: 1px solid var(--borde); justify-content: flex-end; }
+@container (min-width: 861px) {
+  .caja-jornada { flex: 1; }
+  .caja-jornada .caja-operacion { min-block-size: clamp(430px, calc(100dvh - 175px), 880px); }
+}
+@container (max-width: 860px) {
+  .caja-jornada .caja-operacion { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto; }
+  .caja-jornada .caja-vitrina { max-width: 54%; }
+}

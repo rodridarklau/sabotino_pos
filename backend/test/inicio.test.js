@@ -23,6 +23,7 @@ before(async () => {
       }
       if (sql.includes("FROM TURNO_CAJA")) return { rows: [] };
       if (sql.includes("FROM PRODUCTO P")) return { rows: [{ ID_PRODUCTO: 4 }] };
+      if (sql.includes("FROM INSUMO I")) return { rows: [{ ID_INSUMO: 3 }] };
       assert.fail("Consulta inesperada");
     },
     async close() {}
@@ -59,19 +60,21 @@ test("dueño: totales confirmados sin pagos, día de Santiago y alertas reales",
   assert.match(consultas[1].sql, /INTERVAL '1' DAY/);
   assert.doesNotMatch(consultas[1].sql, /PAGO_VENTA/);
   assert.match(consultas[3].sql, /P\.STOCK_ACTUAL <= P\.STOCK_CRITICO/);
+  assert.deepEqual(datos.alertasInsumos, [{ ID_INSUMO: 3 }]);
+  assert.match(consultas[4].sql, /I\.ESTADO_ACTIVO = 'S' AND I\.STOCK_ACTUAL <= I\.STOCK_CRITICO/);
 });
 
-test("vendedor: ventas y turnos propios, sin lectura administrativa", async () => {
+test("vendedor: ventas propias y estado de MAIN, sin lectura administrativa", async () => {
   contexto("VENDEDOR");
   const respuesta = await fetch(url);
   assert.equal(respuesta.status, 200);
   assert.equal(Object.hasOwn(await respuesta.json(), "alertas"), false);
   assert.equal(consultas.length, 3);
-  assert.deepEqual(consultas[2].binds, { actorId: 27, dueno: 0 });
+  assert.deepEqual(consultas[2].binds, { nombre: "MAIN" });
   assert.equal(consultas[1].binds.dueno, 0);
   assert.equal(consultas[1].binds.actorId, 27);
   assert.match(consultas[1].sql, /V\.ID_USUARIO = :actorId/);
-  assert.match(consultas[2].sql, /T\.ID_USUARIO_APERTURA = :actorId/);
+  assert.match(consultas[2].sql, /C\.NOMBRE_CAJA = :nombre/);
 });
 
 test("una lectura fallida conserva las demás; un vacío válido queda diferenciado", async () => {

@@ -25,8 +25,11 @@ before(async () => {
       if (sql.startsWith("SELECT R.NOMBRE_ROL")) return { rows: escenario.rol ? [{ NOMBRE_ROL: escenario.rol }] : [] };
       if (sql.includes("FROM PRODUCTO P")) return { rows: escenario.productos };
       if (sql.includes("FROM METODO_PAGO")) return { rows: escenario.metodos };
-      if (sql.includes("FROM CAJA_TERMINAL")) return { rows: [{ ID_CAJA: 2, NOMBRE_CAJA: "Principal" }] };
-      if (sql.includes("FROM TURNO_CAJA")) return { rows: escenario.turnos };
+      if (sql.includes("FROM CAJA_TERMINAL")) return { rows: [{ ID_CAJA: 2, NOMBRE_CAJA: "MAIN", ESTADO_OPERATIVO: "S" }] };
+      if (sql.includes("FROM TURNO_CAJA")) {
+        assert.equal(binds.nombre, "MAIN");
+        return { rows: escenario.turnos.filter((turno) => !binds.turnoId || turno.ID_TURNO_CAJA === binds.turnoId) };
+      }
       if (sql.includes("FROM VENTA V")) {
         return { rows: escenario.ventas.filter((v) =>
           (binds.dueno || v.ID_USUARIO === binds.actorId) && (!binds.ventaId || v.ID_VENTA === binds.ventaId)) };
@@ -92,7 +95,6 @@ test("los GET filtran por actor y permiten al dueño consultar otras ventas", as
   assert.equal(datos.productos.length, 2);
   assert.equal(datos.metodos.length, 2);
   assert.equal(datos.turnos[0].ID_TURNO_CAJA, 6);
-  assert.equal(datos.cajas[0].ID_CAJA, 2);
   const listado = await (await fetch(`${url}?pagina=2&estado=BORRADOR&buscar=91`)).json();
   assert.deepEqual(listado.ventas, [escenario.ventas[0]]);
   assert.deepEqual(llamadas.at(-1).binds, { actorId: 7, dueno: 0, desplazamiento: 25, estado: "BORRADOR", buscar: "91" });

@@ -53,7 +53,7 @@
 .modulo-ayuda { color: var(--secundario); }
 .modulo-contexto { background: var(--crema); border-radius: 9px; padding: 10px 12px; }
 .modulo-busqueda {
-  display: grid; gap: 5px; max-width: 35rem; margin-block: 12px;
+  display: grid; gap: 5px; width: min(100%, max(28rem, 60%)); margin-block: 12px;
   font-size: .84rem; font-weight: 650; color: var(--marron-fuerte);
 }
 .modulo-busqueda .buscador { width: 100%; font-weight: 400; }
@@ -81,3 +81,38 @@
   .modulo .modulo-pestanas { width: 100%; }
   :is(.compras-vista, .ventas) .modulo-pestanas button { flex: 1 1 0; padding-inline: 6px; }
 }
+.tarjeta-dato {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 0 clamp(9px, 1vw, 16px);
+  border-radius: 24px;
+  padding: clamp(11px, 1.15vw, 20px);
+  background: var(--tarjeta-fondo);
+  color: #252a44;
+}
+.tarjeta-dato[data-tono="lavanda"] { --tarjeta-fondo: #f1e5f4; --tarjeta-icono: #dfd3f7; }
+.tarjeta-dato[data-tono="dorado"] { --tarjeta-fondo: #fff0d0; --tarjeta-icono: #ffdfa0; }
+.tarjeta-dato[data-tono="verde"] { --tarjeta-fondo: #eaf3de; --tarjeta-icono: #d5ebc3; }
+.tarjeta-dato-icono { display: grid; place-items: center; grid-row: 1 / 3; width: clamp(40px, 4.9vw, 75px); aspect-ratio: 1; border-radius: 50%; background: var(--tarjeta-icono); }
+.tarjeta-dato-icono svg { width: 62%; height: 62%; }
+.tarjeta-dato dt { font-weight: 900; font-size: clamp(.92rem, 1.3vw, 1.24rem); line-height: 1.16; }
+.tarjeta-dato dd { font: 650 clamp(1.43rem, 2.9vw, 2.7rem)/1.08 var(--titular); overflow-wrap: anywhere; }
+.tarjeta-dato dd .caja-estado { font: 850 .95rem var(--fuente); }
+
+.solo-lectores { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.modulo .cabecera-ilustrada { position: relative; isolation: isolate; overflow: hidden; min-height: 132px; align-items: center; background: radial-gradient(ellipse at 87% 138%, #f8ccd3 0 36%, transparent 36.4%), linear-gradient(105deg, #fff9ec, #fff0ec); }
+.cabecera-ilustrada .modulo-identidad { z-index: 1; align-items: center; }
+.cabecera-ilustrada .modulo-icono { width: clamp(42px, 4.3vw, 67px); }
+.cabecera-ilustrada .modulo-icono svg { width: 55%; height: 55%; }
+.cabecera-ilustrada small { color: #84511c; font-size: .72rem; font-weight: 950; letter-spacing: .12em; }
+.cabecera-arte { position: absolute; width: 25%; max-width: 420px; height: 102%; right: 13%; bottom: 0; object-fit: contain; z-index: -1; pointer-events: none; }
+.cabecera-ilustrada > :is(button,.acciones-formulario) { z-index: 1; }
+.resumen-modulo { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,210px),1fr)); gap: 12px; }
+.tarjeta-dato[data-tono="rosa"] { --tarjeta-fondo: #fde5eb; --tarjeta-icono: #ffcbd8; }
+.tarjeta-dato { position: relative; overflow: hidden; isolation: isolate; border: 1px solid #fff9f1; box-shadow: var(--sombra); }
+.tarjeta-dato-arte { position: absolute; width: clamp(48px,20%,124px); right: 9px; bottom: 4px; z-index: -1; pointer-events: none; }
+.tarjeta-dato:has(.tarjeta-dato-arte) { padding-right: 24%; }
+.tarjeta-dato .tarjeta-dato-detalle { grid-column: 1 / -1; font: 650 .84rem/1.2 var(--fuente); margin-top: 7px; }
+@media (max-width: 1050px) { .cabecera-arte { right: 5%; opacity: .36; } }
+@media (max-width: 540px) { .modulo .cabecera-ilustrada { min-height: 118px; } .cabecera-arte { width: 45%; right: 0; opacity: .2; } }

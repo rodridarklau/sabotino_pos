@@ -1,6 +1,7 @@
 ﻿const express = require("express");
-const { autorizar, filas } = require("../services/caja-ventas");
+const { autorizar, filas, nombreCajaPrincipal } = require("../services/caja-ventas");
 const { alertasStockSql } = require("../services/alertas-stock");
+const { INSUMOS_ACTIVOS } = require("../config/catalogo-stock");
 
 const router = express.Router();
 const fechaSantiago = new Intl.DateTimeFormat("en-CA", {
@@ -31,10 +32,12 @@ router.get("/", (req, res) => {
     const turnos = await consultar(c, "turnos", `SELECT T.ID_TURNO_CAJA, C.NOMBRE_CAJA,
         TO_CHAR(T.FECHA_HORA_APERTURA, 'HH24:MI DD/MM/YYYY') AS APERTURA
       FROM TURNO_CAJA T JOIN CAJA_TERMINAL C ON C.ID_CAJA = T.ID_CAJA
-      WHERE T.ESTADO_TURNO = 'ABIERTO' AND (:dueno = 1 OR T.ID_USUARIO_APERTURA = :actorId)
-      ORDER BY T.FECHA_HORA_APERTURA DESC, T.ID_TURNO_CAJA DESC`, alcance);
+      WHERE T.ESTADO_TURNO = 'ABIERTO' AND C.NOMBRE_CAJA = :nombre AND C.ESTADO_OPERATIVO = 'S'
+      ORDER BY T.FECHA_HORA_APERTURA DESC, T.ID_TURNO_CAJA DESC`, { nombre: nombreCajaPrincipal });
     const alertas = dueno ? await consultar(c, "stock", alertasStockSql) : undefined;
-    res.json({ hoy, ventas: ventas?.[0] ?? null, turnos, alertas });
+    const alertasInsumos = dueno ? await consultar(c, "stock-insumos",
+      `${INSUMOS_ACTIVOS} AND I.STOCK_ACTUAL <= I.STOCK_CRITICO ORDER BY I.NOMBRE_INSUMO, I.ID_INSUMO`) : undefined;
+    res.json({ hoy, ventas: ventas?.[0] ?? null, turnos, alertas, alertasInsumos });
   });
 });
 

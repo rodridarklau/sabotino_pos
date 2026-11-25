@@ -1,15 +1,19 @@
 import { useEffect, useRef, useState } from "react";
+import { Icono } from "./Navegacion.jsx";
 import "./Caja.css";
-import { CabeceraModulo, EtiquetaEstado, PestanasModulo } from "./Presentacion.jsx";
+import { CabeceraModulo } from "./Presentacion.jsx";
+import { useBorrador } from "./borradores.js";
 
-const vistasCaja = [["turno", "Turno actual"], ["terminales", "Terminales"], ["historial", "Historial de turnos"]];
+const simbolos = {
+  candado: "M6 10h12v11H6z M8 10V7a4 4 0 0 1 8 0v3 M12 14v3",
+};
+
 
 const api = "/api/caja";
 const formato = new Intl.NumberFormat("es-CL", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const dinero = (valor) => valor == null ? "—" : `$ ${formato.format(valor)}`;
 const aCentavos = (valor) => Math.round(valor * 100);
 const metodos = ["EFECTIVO", "TARJETA", "TRANSFERENCIA"];
-const cajaVacia = { nombre: "", ubicacion: "", estado: "S" };
 const conteoVacio = { efectivo: "", tarjeta: "", transferencia: "" };
 
 function monto(texto) {
@@ -59,10 +63,11 @@ function Paginacion({ pagina, hayMas, cambiar }) {
 }
 
 function TurnoDetalle({ datos, ocupado, cerrarTurno }) {
-  const [conteo, setConteo] = useState(conteoVacio);
   const [confirmar, setConfirmar] = useState(false);
   const { turno, pagos, ventas, auditoria, borradores } = datos;
   const abierto = turno.ESTADO_TURNO === "ABIERTO";
+  const [conteo, setConteo, descartarConteo] = useBorrador("caja", `arqueo:${turno.ID_TURNO_CAJA}`, conteoVacio,
+    (valores) => Object.values(valores).some(Boolean));
   const filas = metodos.map((metodo) => {
     const inicial = turno[`INICIAL_${metodo}`];
     const cobrado = pagos.find((pago) => pago.NOMBRE_METODO === metodo)?.TOTAL ?? 0;
@@ -110,7 +115,7 @@ function TurnoDetalle({ datos, ocupado, cerrarTurno }) {
         <div className="acciones-formulario">
           <button className="secundario" type="button" disabled={ocupado} onClick={() => setConfirmar(false)}>Cancelar</button>
           <button type="button" disabled={ocupado || !puedeCerrar} onClick={() => cerrarTurno(
-            turno.ID_TURNO_CAJA, Object.fromEntries(filas.map((fila) => [fila.clave, fila.real]))
+            turno.ID_TURNO_CAJA, Object.fromEntries(filas.map((fila) => [fila.clave, fila.real])), descartarConteo
           )}>Confirmar cierre</button>
         </div>
       </div>}
@@ -133,206 +138,168 @@ function TurnoDetalle({ datos, ocupado, cerrarTurno }) {
   </>;
 }
 
-export default function Caja({ usuario }) {
-  const [vista, setVista] = useState("turno");
-  const [vistaDetalle, setVistaDetalle] = useState("turno");
-  const [revision, setRevision] = useState(0);
-  const [cajaId, setCajaId] = useState("");
-  const [inicial, setInicial] = useState("0");
-  const [formulario, setFormulario] = useState(null);
-  const [turnoId, setTurnoId] = useState(null);
-  const [filtro, setFiltro] = useState("");
-  const [pagina, setPagina] = useState(1);
-  const [paginaVentas, setPaginaVentas] = useState(1);
-  const [ocupado, setOcupado] = useState(false);
-  const [mensaje, setMensaje] = useState("");
+export function AbrirCajaPrincipal({ alAbrir, modulo = "caja" }) {
+  const [inicial, setInicial] = useBorrador(modulo, "apertura", "0", (valor) => valor !== "0");
+  const [ocupado, setOcupado] = useBorrador(modulo, "envioApertura", false, () => false);
   const [error, setError] = useState("");
   const enCurso = useRef(false);
-  const catalogo = useCaja("", revision);
-  const { cajas = [], activos = [] } = catalogo?.datos ?? {};
-  const historial = useCaja(`/turnos?pagina=${pagina}${filtro ? `&cajaId=${filtro}` : ""}`, revision);
-  const detalle = useCaja(turnoId === null ? null : `/turnos/${turnoId}?pagina=${paginaVentas}`, revision);
-  const disponibles = cajas.filter((caja) => caja.ESTADO_OPERATIVO === "S" && !activos.some((t) => t.ID_CAJA === caja.ID_CAJA));
-  const seleccion = disponibles.find((caja) => caja.ID_CAJA === Number(cajaId)) ?? (disponibles.length === 1 ? disponibles[0] : null);
-  const dueno = usuario.rol === "DUENO";
 
-  function actualizar() {
-    setRevision((n) => n + 1);
-  }
-
-  function verTurno(id, seccion = "turno") {
-    setVistaDetalle(seccion);
-    setVista(seccion);
-    setTurnoId(id);
-    setPaginaVentas(1);
-  }
-
-  async function operar(ruta, metodo, cuerpo, alConfirmar) {
+  async function abrir(evento) {
+    evento.preventDefault();
     if (enCurso.current) return;
+    const efectivoInicial = monto(inicial);
+    if (efectivoInicial === null) return setError("Ingresa un monto inicial válido.");
     enCurso.current = true;
     setOcupado(true);
     setError("");
-    setMensaje("");
     try {
-      const resultado = await solicitar(ruta, {
-        method: metodo, headers: { "Content-Type": "application/json" }, body: JSON.stringify(cuerpo)
+      await solicitar("/turnos", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ efectivoInicial })
       });
-      alConfirmar(resultado);
-      actualizar();
+      setInicial("0");
+      alAbrir();
     } catch (fallo) {
-      setError(fallo.estado === "ERROR" ? fallo.message
-        : "No se pudo confirmar la operación. Revisa el estado actualizado antes de repetirla.");
-      if (fallo.estado !== "ERROR" || fallo.codigo === 409) actualizar();
+      setError(fallo.estado === "ERROR" ? fallo.message : "Actualiza la pantalla para verificar si el turno se abrió.");
     } finally {
       enCurso.current = false;
       setOcupado(false);
     }
   }
 
-  function abrir(evento) {
-    evento.preventDefault();
-    const efectivoInicial = monto(inicial);
-    if (!seleccion || efectivoInicial === null) return setError("Selecciona una caja e ingresa un monto inicial válido.");
-    if (!window.confirm(`¿Abrir ${seleccion.NOMBRE_CAJA} con ${dinero(efectivoInicial)} de efectivo inicial?`)) return;
-    void operar("/turnos", "POST", { cajaId: seleccion.ID_CAJA, efectivoInicial }, ({ turnoId }) => {
-      setMensaje(`Turno #${turnoId} abierto.`);
-      setInicial("0");
-      verTurno(turnoId);
-    });
-  }
+  return <section className="panel caja-apertura" id="caja-apertura">
+    <img className="caja-ilustracion" src="/branding/cupcake-chef.svg" alt="" width="240" height="240" />
+    <form onSubmit={abrir}>
+      <h2>¿Listo para comenzar?</h2>
+      <p>Abre el turno de la caja principal y comienza a registrar tus ventas del día.</p>
+      <div className="campos-producto">
+        <label>Dinero inicial en efectivo (CLP)
+          <span className="caja-importe"><span aria-hidden="true">$</span><input type="number" required min="0" max="999999999999.99" step="0.01" value={inicial}
+            aria-invalid={Boolean(error && monto(inicial) === null)} aria-describedby={error ? "error-apertura" : undefined}
+            onChange={(evento) => setInicial(evento.target.value)} disabled={ocupado} /></span>
+        </label>
+      </div>
+      {error && <p id="error-apertura" role="alert" className="error">{error}</p>}
+      <button type="submit" disabled={ocupado}><span><Icono trazado="m9 5 11 7-11 7z" /></span>
+        {ocupado ? "Abriendo turno…" : "Abrir turno y comenzar a vender"}
+      </button>
+    </form>
+  </section>;
+}
 
-  function cerrar(id, importes) {
-    void operar(`/turnos/${id}/cierre`, "POST", importes, ({ descuadre }) => {
+export default function Caja({ irAVentas }) {
+  const [vista, setVista] = useState("turno");
+  const [revision, actualizar] = useState(0);
+  const [turnoElegido, setTurnoElegido] = useState(null);
+  const [pagina, setPagina] = useState(1);
+  const [paginaVentas, setPaginaVentas] = useState(1);
+  const [ocupado, setOcupado] = useBorrador("caja", "envio", false, () => false);
+  const [mensaje, setMensaje] = useState("");
+  const [error, setError] = useState("");
+  const enCurso = useRef(false);
+  const catalogo = useCaja("", revision);
+  const activo = catalogo?.datos?.activos[0];
+  const historial = useCaja(vista === "historial" ? `/turnos?pagina=${pagina}` : null, revision);
+  const turnoId = vista === "turno" ? activo?.ID_TURNO_CAJA : turnoElegido;
+  const detalle = useCaja(turnoId == null ? null : `/turnos/${turnoId}?pagina=${paginaVentas}`, revision);
+  const balance = detalle?.datos;
+  const seleccionarTurno = (id, seccion) => {
+    setTurnoElegido(id);
+    setPaginaVentas(1);
+    setVista(seccion);
+  };
+
+  async function cerrar(id, importes, limpiarBorrador) {
+    if (enCurso.current) return;
+    enCurso.current = true;
+    setOcupado(true);
+    setError("");
+    try {
+      const { descuadre } = await solicitar(`/turnos/${id}/cierre`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(importes)
+      });
       setMensaje(`Turno #${id} cerrado. Descuadre registrado: ${dinero(descuadre)}.`);
-      setPagina(1);
-    });
-  }
-
-  function guardar(evento) {
-    evento.preventDefault();
-    const { id, nombre, ubicacion, estado } = formulario;
-    const bytes = new TextEncoder();
-    if (!nombre.trim() || bytes.encode(nombre.trim()).length > 50 || bytes.encode(ubicacion.trim()).length > 100) {
-      return setError("El nombre es obligatorio. Usa hasta 50 bytes para el nombre y 100 para la ubicación.");
+      limpiarBorrador();
+      seleccionarTurno(id, "balance");
+      actualizar((n) => n + 1);
+    } catch (fallo) {
+      setError(fallo.estado === "ERROR" ? fallo.message : "Verifica el estado del turno antes de repetir el cierre.");
+    } finally {
+      enCurso.current = false;
+      setOcupado(false);
     }
-    void operar(id ? `/terminales/${id}` : "/terminales", id ? "PUT" : "POST", { nombre, ubicacion, estado }, ({ cajaId }) => {
-      setMensaje(`Caja #${cajaId} ${id ? "actualizada" : "creada"}.`);
-      setFormulario(null);
-    });
   }
 
-  function eliminar(caja) {
-    if (!window.confirm(`¿Eliminar la caja ${caja.NOMBRE_CAJA}? ` +
-      "Oracle solo lo permite si no tiene referencias.")) return;
-    void operar(`/terminales/${caja.ID_CAJA}`, "DELETE", {}, () => setMensaje("Caja eliminada."));
-  }
-
-  function cambiarCaja(evento) {
-    setFormulario({ ...formulario, [evento.target.name]: evento.target.value });
-  }
+  const opciones = <div className="acciones-formulario caja-opciones">
+    <button className="secundario" type="button" disabled={ocupado}
+      onClick={() => seleccionarTurno(null, vista === "turno" ? "historial" : "turno")}>
+      {vista === "turno" ? "Historial de turnos" : "Volver a Caja"}
+    </button>
+    <button className="secundario" type="button" disabled={ocupado} onClick={() => actualizar((n) => n + 1)}>Actualizar</button>
+  </div>;
 
   return <div className="caja modulo">
-    <CabeceraModulo modulo="caja" titulo="Caja" descripcion="Consulta turnos, administra terminales y revisa el arqueo.">
-      <button className="secundario" type="button" disabled={ocupado} onClick={actualizar}>Actualizar</button>
-    </CabeceraModulo>
-    <PestanasModulo etiqueta="Vistas de Caja" prefijo="caja" opciones={vistasCaja} activa={vista} seleccionar={setVista} />
+    {(vista !== "turno" || !catalogo?.datos) && <CabeceraModulo modulo="caja" titulo="Caja Principal" descripcion="Apertura, ventas y cierre de jornada">
+      {opciones}
+    </CabeceraModulo>}
     {mensaje && <p role="status" className="mensaje-exito">{mensaje}</p>}
     {error && <p role="alert" className="error">{error}</p>}
-    <section id="caja-terminales" className="panel" hidden={vista !== "terminales"}>
-      <div className="panel-encabezado"><h2>Terminales</h2>
-        {dueno && <button type="button" disabled={ocupado} onClick={() => setFormulario(cajaVacia)}>Nueva caja</button>}
-      </div>
-      <EstadoConsulta consulta={catalogo} texto="Consultando cajas…" />
-      {catalogo?.datos && !cajas.length && <p>No hay cajas disponibles.</p>}
-      {cajas.length > 0 && <div className="tabla-contenedor" tabIndex={0} role="region" aria-label="Terminales de caja"><table aria-label="Terminales de caja">
-        <thead><tr><th>Caja</th><th>Ubicación</th><th>Estado</th><th>Turno activo</th><th>Turnos registrados</th>{dueno && <th>Acciones</th>}</tr></thead>
-        <tbody>{cajas.map((caja) => {
-          const activo = activos.find((t) => t.ID_CAJA === caja.ID_CAJA);
-          return <tr key={caja.ID_CAJA}>
-            <td>{caja.NOMBRE_CAJA}</td><td>{caja.UBICACION || "—"}</td>
-            <td><EtiquetaEstado tono={caja.ESTADO_OPERATIVO === "S" ? "exito" : "neutro"}>{caja.ESTADO_OPERATIVO === "S" ? "Operativa" : "Fuera de servicio"}</EtiquetaEstado></td>
-            <td>{activo ? <button type="button" onClick={() => verTurno(activo.ID_TURNO_CAJA)}>#{activo.ID_TURNO_CAJA}</button> : "—"}</td>
-            <td><button type="button" onClick={() => { setFiltro(String(caja.ID_CAJA)); setPagina(1); setVista("historial"); }}>{caja.TOTAL_TURNOS}</button></td>
-            {dueno && <td className="caja-acciones">
-              <button type="button" disabled={ocupado} onClick={() => setFormulario({
-                id: caja.ID_CAJA, nombre: caja.NOMBRE_CAJA, ubicacion: caja.UBICACION ?? "", estado: caja.ESTADO_OPERATIVO
-              })}>Editar</button>
-              {caja.TOTAL_TURNOS === 0 && <button className="peligro" type="button" disabled={ocupado} onClick={() => eliminar(caja)}>Eliminar</button>}
-            </td>}
-          </tr>;
-        })}</tbody>
-      </table></div>}
-      {formulario && dueno && <form className="formulario-producto" onSubmit={guardar}>
-        <h3>{formulario.id ? "Editar caja" : "Nueva caja"}</h3>
-        <fieldset className="campos-producto caja-campos" disabled={ocupado}>
-          <label>Nombre<input name="nombre" required maxLength={50} value={formulario.nombre} onChange={cambiarCaja} /></label>
-          <label>Ubicación<input name="ubicacion" maxLength={100} value={formulario.ubicacion} onChange={cambiarCaja} /></label>
-          <label>Estado<select name="estado" value={formulario.estado} onChange={cambiarCaja}>
-            <option value="S">Operativa</option><option value="N">Fuera de servicio</option>
-          </select></label>
-          <div className="caja-acciones">
-            <button className="secundario" type="button" onClick={() => setFormulario(null)}>Cancelar</button>
-            <button type="submit">Guardar caja</button>
-          </div>
-        </fieldset>
-      </form>}
-    </section>
-    <div id="caja-turno" className="modulo-pila" hidden={vista !== "turno"}>
-    <section className="panel">
-      <h2>Turnos activos</h2>
-      {catalogo?.datos && (activos.length ? <ul className="caja-lista">{activos.map((turno) =>
-        <li key={turno.ID_TURNO_CAJA}>
-          <button type="button" onClick={() => verTurno(turno.ID_TURNO_CAJA)}>{turno.NOMBRE_CAJA} · #{turno.ID_TURNO_CAJA}</button>
-          <span>{turno.RESPONSABLE_APERTURA} · {turno.APERTURA} · Efectivo inicial {dinero(turno.INICIAL_EFECTIVO)}</span>
-        </li>
-      )}</ul> : <div className="modulo-vacio"><p>No hay turnos abiertos.</p>{disponibles.length > 0 && <a href="#caja-apertura">Ir al formulario de apertura</a>}</div>)}
-    </section>
-    <section className="panel" id="caja-apertura">
-      <h2>Abrir turno</h2>
-      <p className="modulo-ayuda">Selecciona una terminal e indica cuánto efectivo hay al iniciar el turno.</p>
-      <EstadoConsulta consulta={catalogo} texto="Consultando cajas…" />
-      {catalogo?.datos && (disponibles.length ? <form onSubmit={abrir}>
-        <fieldset className="campos-producto caja-campos" disabled={ocupado}>
-          <label>Caja<select required value={seleccion?.ID_CAJA ?? ""} onChange={(evento) => setCajaId(evento.target.value)}>
-            <option value="">Selecciona una caja</option>
-            {disponibles.map((caja) => <option key={caja.ID_CAJA} value={caja.ID_CAJA}>{caja.NOMBRE_CAJA}</option>)}
-          </select></label>
-          <label>Efectivo inicial<input type="number" required min="0" max="999999999999.99" step="0.01"
-            value={inicial} onChange={(evento) => setInicial(evento.target.value)} /></label>
-          <div><button type="submit">Abrir turno</button></div>
-        </fieldset>
-      </form> : <p>No hay cajas operativas sin turno abierto.</p>)}
-    </section>
-    </div>
-    <section id="caja-historial" className="panel" hidden={vista !== "historial"}>
+    {vista === "turno" && <>
+      <EstadoConsulta consulta={catalogo} texto="Consultando Caja Principal…" />
+      {catalogo?.datos && <div className="caja-jornada">
+        <div className="panel caja-operacion">
+          <header className="caja-portada">
+            <img className="caja-vitrina" src="/branding/vitrina.svg" alt="" width="560" height="410" />
+            <div className="caja-portada-contenido">
+              <div className="caja-titulo">
+                <img src="/branding/registro.svg" alt="" width="120" height="120" />
+                <h1>Caja<br />Principal</h1>
+              </div>
+              <p className="caja-lema">{activo ? "Tu jornada está en marcha" : "Tu jornada comienza aquí"}</p>
+              <span className="caja-estado" data-abierto={Boolean(activo)}>
+                <Icono trazado={activo ? "m5 12 5 5 9-10" : simbolos.candado} />{activo ? "Turno abierto" : "Turno cerrado"}
+              </span>
+            </div>
+          </header>
+          {activo ? <div className="caja-en-marcha">
+            <h2>Turno #{activo.ID_TURNO_CAJA}</h2>
+            <p>{activo.RESPONSABLE_APERTURA} · {activo.APERTURA}</p>
+            <dl className="modulo-metricas"><div><dt>Efectivo inicial</dt><dd>{dinero(activo.INICIAL_EFECTIVO)}</dd></div>
+              <div><dt>Ventas del turno</dt><dd>{balance?.resumen?.CANTIDAD ?? "—"}</dd></div>
+              <div><dt>Total del turno</dt><dd>{dinero(balance?.resumen?.TOTAL)}</dd></div></dl>
+            <EstadoConsulta consulta={detalle} texto="Consultando importes del turno…" />
+            {balance?.pagos.length > 0 && <dl className="modulo-metricas">{balance.pagos.map((pago) =>
+              <div key={pago.NOMBRE_METODO}><dt>{pago.NOMBRE_METODO}</dt><dd>{dinero(pago.TOTAL)}</dd></div>)}</dl>}
+            <div className="acciones-formulario">
+              <button type="button" onClick={irAVentas}>Ir a vender</button>
+              <button className="secundario" type="button" onClick={() => seleccionarTurno(activo.ID_TURNO_CAJA, "balance")}>Cerrar turno</button>
+            </div>
+          </div> : catalogo.datos.caja?.ESTADO_OPERATIVO === "N"
+            ? <p className="error" role="alert">La Caja Principal está fuera de servicio.</p>
+            : <AbrirCajaPrincipal alAbrir={irAVentas} />}
+          {opciones}
+        </div>
+      </div>}
+    </>}
+    {vista === "historial" && <section className="panel">
       <h2>Historial de turnos cerrados</h2>
-      <div className="campos-producto caja-campos"><label>Caja
-        <select value={filtro} onChange={(evento) => { setFiltro(evento.target.value); setPagina(1); }}>
-          <option value="">Todas</option>
-          {cajas.map((caja) => <option key={caja.ID_CAJA} value={caja.ID_CAJA}>{caja.NOMBRE_CAJA}</option>)}
-        </select>
-      </label></div>
       <EstadoConsulta consulta={historial} texto="Consultando historial…" />
-      {historial?.datos?.turnos.length === 0 && <p className="modulo-vacio">No hay turnos cerrados para este filtro.</p>}
-      {historial?.datos?.turnos.length > 0 && <div className="tabla-contenedor" tabIndex={0} role="region" aria-label="Turnos cerrados"><table aria-label="Turnos cerrados">
-        <thead><tr><th>Turno</th><th>Caja</th><th>Apertura</th><th>Cierre</th><th>Estado</th><th>Efectivo inicial</th><th>Detalle</th></tr></thead>
-        <tbody>{historial.datos.turnos.map((turno) => <tr key={turno.ID_TURNO_CAJA}>
-          <td>{turno.ID_TURNO_CAJA}</td><td>{turno.NOMBRE_CAJA}</td>
-          <td>{turno.APERTURA}<br />{turno.RESPONSABLE_APERTURA}</td><td>{turno.CIERRE}<br />{turno.RESPONSABLE_CIERRE}</td>
-          <td><EtiquetaEstado tono="neutro">{turno.ESTADO_TURNO}</EtiquetaEstado></td><td className="modulo-numero">{dinero(turno.INICIAL_EFECTIVO)}</td>
-          <td><button type="button" onClick={() => verTurno(turno.ID_TURNO_CAJA, "historial")}>Ver turno</button></td>
-        </tr>)}</tbody>
-      </table></div>}
+      {historial?.datos?.turnos.length === 0 && <p className="modulo-vacio">Todavía no hay turnos cerrados.</p>}
+      {historial?.datos?.turnos.length > 0 && <div className="tabla-contenedor" tabIndex={0} role="region" aria-label="Turnos cerrados">
+        <table><thead><tr><th>Turno</th><th>Caja</th><th>Apertura</th><th>Cierre</th><th>Detalle</th></tr></thead>
+          <tbody>{historial.datos.turnos.map((turno) => <tr key={turno.ID_TURNO_CAJA}>
+            <td>#{turno.ID_TURNO_CAJA}</td><td>{turno.NOMBRE_CAJA === "MAIN" ? "Caja Principal" : turno.NOMBRE_CAJA}</td>
+            <td>{turno.APERTURA}<br />{turno.RESPONSABLE_APERTURA}</td><td>{turno.CIERRE}<br />{turno.RESPONSABLE_CIERRE}</td>
+            <td><button className="secundario" type="button" onClick={() => seleccionarTurno(turno.ID_TURNO_CAJA, "historial")}>Ver turno</button></td>
+          </tr>)}</tbody>
+        </table>
+      </div>}
       <Paginacion pagina={pagina} hayMas={historial?.datos?.hayMas} cambiar={setPagina} />
-    </section>
-    {turnoId !== null && <section className="panel caja-detalle" hidden={vista !== vistaDetalle}>
-      <div className="panel-encabezado">
-        <h2>{detalle?.datos?.turno.NOMBRE_CAJA ?? "Turno"} #{turnoId} {detalle?.datos && `· ${detalle.datos.turno.ESTADO_TURNO}`}</h2>
-        <button type="button" onClick={() => verTurno(null)}>Ocultar detalle</button>
-      </div>
+    </section>}
+    {vista !== "turno" && turnoId != null && <section className="panel caja-detalle">
+      <div className="panel-encabezado"><h2>Balance del turno #{turnoId}</h2></div>
       <EstadoConsulta consulta={detalle} texto="Consultando turno…" />
-      {detalle?.datos && <TurnoDetalle key={turnoId} datos={detalle.datos} ocupado={ocupado} cerrarTurno={cerrar} />}
-      <Paginacion pagina={paginaVentas} hayMas={detalle?.datos?.hayMas} cambiar={setPaginaVentas} />
+      {balance && <TurnoDetalle key={turnoId} datos={balance} ocupado={ocupado} cerrarTurno={cerrar} />}
+      <Paginacion pagina={paginaVentas} hayMas={balance?.hayMas} cambiar={setPaginaVentas} />
     </section>}
   </div>;
 }

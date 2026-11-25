@@ -1,6 +1,6 @@
 const express = require("express");
 const argon2 = require("argon2");
-const { autorizar, fallo, filas, idValido, procedimiento, salida } = require("../services/caja-ventas");
+const { autorizar, buscarCajaPrincipal, fallo, filas, idValido, procedimiento, salida } = require("../services/caja-ventas");
 
 const router = express.Router();
 const usuarios = `FROM USUARIO U JOIN ROL_USUARIO R ON R.ID_ROL = U.ID_ROL
@@ -45,7 +45,8 @@ router.get("/", (req, res) => gestionar(req, res, async (c) => {
     FROM HORARIO_VENDEDOR H JOIN CAJA_TERMINAL C ON C.ID_CAJA = H.ID_CAJA
     JOIN USUARIO U ON U.ID_USUARIO = H.ID_USUARIO JOIN ROL_USUARIO R ON R.ID_ROL = U.ID_ROL
     WHERE R.NOMBRE_ROL = 'VENDEDOR' ORDER BY H.HORA_INICIO, H.ID_HORARIO`);
-  const cajas = await filas(c, "SELECT ID_CAJA, NOMBRE_CAJA FROM CAJA_TERMINAL WHERE ESTADO_OPERATIVO = 'S' ORDER BY NOMBRE_CAJA");
+  const caja = await buscarCajaPrincipal(c);
+  const cajas = caja?.ESTADO_OPERATIVO === "S" ? [caja] : [];
   res.json({ vendedores, horarios, cajas });
 }));
 
@@ -61,8 +62,8 @@ function guardarUsuario(req, res) {
     const cambiarPassword = !editar || (password != null && password !== "");
     if ((editar && !idValido(id)) || !textoValido(rut, 3, 12) || !textoValido(nombre, 3, 100)
       || !textoValido(usuario, 3, 50) || !["S", "N"].includes(estado)
-      || (cambiarPassword && (typeof password !== "string" || password.length < 12 || password.length > 128))) {
-      return fallo(res, 400, "Revisa los datos. La contraseña debe tener de 12 a 128 caracteres");
+      || (cambiarPassword && (typeof password !== "string" || password.length < 8 || password.length > 128))) {
+      return fallo(res, 400, "Revisa los datos. La contraseña debe tener de 8 a 128 caracteres");
     }
     let rolId = null;
     if (editar) {
@@ -94,14 +95,18 @@ function guardarHorario(req, res) {
     const editar = req.params.id !== undefined;
     const id = Number(req.params.id);
     const { vendedorId, cajaId, dia, inicio, fin, estado } = req.body ?? {};
-    if ((editar && !idValido(id)) || !idValido(vendedorId) || !idValido(cajaId) ||
+    if ((editar && !idValido(id)) || !idValido(vendedorId) || (cajaId !== undefined && !idValido(cajaId)) ||
       !dias.includes(dia) || typeof inicio !== "string" || typeof fin !== "string" ||
       !hora.test(inicio) || !hora.test(fin) || fin <= inicio || !["S", "N"].includes(estado)) {
-      return fallo(res, 400, "Selecciona vendedor, caja y un intervalo válido dentro del mismo día");
+      return fallo(res, 400, "Selecciona un vendedor y un intervalo válido dentro del mismo día");
     }
     const [vendedor] = await filas(c, `SELECT U.ID_USUARIO ${usuarios} AND U.ID_USUARIO = :vendedorId`, { vendedorId });
     if (!vendedor || (editar && !await horarioVendedor(c, id))) return fallo(res, 404, "Vendedor u horario no encontrado");
-    const datos = { vendedorId, cajaId, dia, inicio, fin, estado };
+    const caja = await buscarCajaPrincipal(c);
+    if (caja?.ESTADO_OPERATIVO !== "S" || (cajaId !== undefined && cajaId !== caja.ID_CAJA)) {
+      return fallo(res, 409, "Los horarios se asignan a la Caja Principal cuando está operativa");
+    }
+    const datos = { vendedorId, cajaId: caja.ID_CAJA, dia, inicio, fin, estado };
     return editar
       ? ejecutar(res, c, "SAB_U_HORARIO_VENDEDOR", { actorId, id, ...datos }, () => ({ id }))
       : ejecutar(res, c, "SAB_C_HORARIO_VENDEDOR", { actorId, ...datos, resultado: salida }, (nuevo) => ({ id: nuevo }), 201);

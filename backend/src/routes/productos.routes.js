@@ -121,14 +121,19 @@ router.get("/tablas", exigirDueno, async (req, res) => {
   }
 });
 
+const { ULTIMO_PROVEEDOR_PRODUCTO } = require("../config/catalogo-stock");
+
 // Listar los primeros 20 productos (la paginación vendrá después).
 router.get("/productos", async (req, res) => {
   let conexion;
   try {
     conexion = await obtenerConexion();
+    const esDueno = req.session.usuario.rol === "DUENO";
     const resultado = await conexion.execute(
-      `SELECT * FROM PRODUCTO
-       ORDER BY ID_PRODUCTO DESC
+      `SELECT P.*${esDueno ? ", PR.RAZON_SOCIAL AS PROVEEDOR_ACTUAL" : ""} FROM PRODUCTO P
+       ${esDueno ? `LEFT JOIN (${ULTIMO_PROVEEDOR_PRODUCTO}) A ON A.ID_PRODUCTO = P.ID_PRODUCTO
+         LEFT JOIN PROVEEDOR PR ON PR.ID_PROVEEDOR = A.ID_PROVEEDOR` : ""}
+       ORDER BY P.ID_PRODUCTO DESC
        FETCH FIRST 20 ROWS ONLY`,
       [],
       { outFormat: oracledb.OUT_FORMAT_OBJECT }

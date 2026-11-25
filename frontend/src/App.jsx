@@ -1,6 +1,7 @@
 
 import { useEffect, useState } from "react";
-import { CabeceraModulo, EtiquetaEstado } from "./Presentacion.jsx";
+import { Borradores } from "./borradores.js";
+import { CabeceraModulo, EtiquetaEstado, TarjetaDato } from "./Presentacion.jsx";
 import "./App.css";
 import Compras from "./compras.jsx";
 import Proveedores from "./Proveedores.jsx";
@@ -12,6 +13,7 @@ import Reportes from "./Reportes.jsx";
 import { Navegacion } from "./Navegacion.jsx";
 import Inicio from "./Inicio.jsx";
 import ImagenProducto from "./ImagenProducto.jsx";
+import { sugerirImagen } from "./bibliotecaProducto.js";
 
 const API_URL = "/api/productos";
 const API_IMAGENES = "/api/productos-imagenes";
@@ -40,6 +42,7 @@ function useMiniaturas(activo, revision, productos) {
 }
 
 function App({ usuario, onLogout }) {
+  const [borradores] = useState(() => new Map());
   const [productos, setProductos] = useState([]);
   const [busqueda, setBusqueda] = useState("");
   const [cargando, setCargando] = useState(true);
@@ -56,27 +59,47 @@ function App({ usuario, onLogout }) {
   const [vista, setVista] = useState("inicio");
   const [productoSugerido, setProductoSugerido] = useState(null);
   const [busquedaInventario, setBusquedaInventario] = useState("");
+  const [ajusteInicial, setAjusteInicial] = useState(null);
+  const [borradorInsumo, setBorradorInsumo] = useState(null);
+  const [proveedorParaInsumo, setProveedorParaInsumo] = useState(false);
   const miniaturas = useMiniaturas(vista === "productos" && usuario.rol === "DUENO", revisionVisual, productos);
 
+  function permitirSalir(destino) {
+    if (destino === vista) return true;
+    if ([...borradores].some(([clave, item]) => item.modulo === vista && /:envio(?:Apertura|Proveedor|-ajuste)?$/.test(clave) && item.valor === true)) {
+      window.alert("Espera a que termine la operación antes de cambiar de módulo.");
+      return false;
+    }
+    const pendiente = (vista === "productos" && mostrarFormulario) ||
+      (vista === "insumos" && Boolean(borradorInsumo)) ||
+      [...borradores.values()].some((item) => item.modulo === vista && item.pendiente);
+    return !pendiente || window.confirm("Hay un formulario pendiente. ¿Salir y conservar el borrador de esta sesión?");
+  }
+
   function irACompras(producto = null) {
-    if (usuario.rol !== "DUENO") return;
+    if (usuario.rol !== "DUENO" || !permitirSalir("compras")) return;
     setProductoSugerido(producto?.ID_PRODUCTO ?? null);
-    setMostrarFormulario(false);
     setVista("compras");
   }
 
   function volverAProductos() {
+    if (!permitirSalir("productos")) return;
     setVista("productos");
     setProductoSugerido(null);
     cargarProductos();
   }
 
   function seleccionarVista(destino) {
-    document.getElementById("contenido-principal")?.focus();
-    window.scrollTo(0, 0);
     if (destino === "productos") return volverAProductos();
     if (destino === "compras") return irACompras();
-    if (destino === "inventario") setBusquedaInventario("");
+    if (!permitirSalir(destino)) return;
+    if (destino !== "proveedores" || vista !== "proveedores") setProveedorParaInsumo(false);
+    document.getElementById("contenido-principal")?.focus();
+    window.scrollTo(0, 0);
+    if (destino === "inventario" || destino === "insumos") {
+      setBusquedaInventario("");
+      setAjusteInicial(null);
+    }
     setVista(destino);
   }
 
@@ -210,9 +233,17 @@ async function guardarProducto(evento) {
     }
 
     let errorVisual = "";
-    if (visual) {
+    if (visual || !editando) {
       try {
-        await guardarVisual(datos.idProducto ?? productoEditando?.ID_PRODUCTO, visual);
+        let imagen = visual;
+        if (!imagen) {
+          const biblioteca = await fetch("/productos-base/manifiesto.json");
+          if (!biblioteca.ok) throw new Error("No se pudo consultar la biblioteca.");
+          const categoria = catalogos.categorias.find((c) => String(c.ID_CATEGORIA) === nuevoProducto.idCategoria);
+          const sugerida = sugerirImagen(await biblioteca.json(), nuevoProducto.nombreProducto, categoria?.NOMBRE_CATEGORIA);
+          if (sugerida) imagen = { imagen: sugerida.id, favorito: false, revision: 0 };
+        }
+        if (imagen) await guardarVisual(datos.idProducto ?? productoEditando?.ID_PRODUCTO, imagen);
       } catch (error) {
         errorVisual = `El producto se guardó en Oracle. La imagen o favorito requiere volver a editar el producto. ${error.message}`;
       }
@@ -321,24 +352,37 @@ async function guardarSoloImagen() {
     }).format(Number(valor ?? 0));
 
   return (
-    <div className="app">
+    <Borradores.Provider value={borradores}><div className="app">
       <a className="salto-contenido" href="#contenido-principal">Saltar al contenido</a>
       <Navegacion vista={vista} usuario={usuario} seleccionar={seleccionarVista} salir={onLogout} />
 
       <main className="contenido" id="contenido-principal" tabIndex={-1}>
         {vista === "inicio" ? (
-          <Inicio usuario={usuario} seleccionar={seleccionarVista} abastecer={irACompras} />
+          <Inicio usuario={usuario} seleccionar={seleccionarVista} abastecer={irACompras} verInsumo={(nombre) => {
+            if (!permitirSalir("insumos")) return;
+            setBusquedaInventario(nombre);
+            setVista("insumos");
+          }} />
         ) : vista === "reportes" && usuario.rol === "DUENO" ? (
           <Reportes irACompras={(id) => irACompras({ ID_PRODUCTO: id })}
-            irAInventario={(nombre) => { setBusquedaInventario(nombre); setVista("inventario"); }} />
+            irAInventario={(nombre) => {
+              if (!permitirSalir("inventario")) return;
+              setAjusteInicial(null); setBusquedaInventario(nombre); setVista("inventario");
+            }} />
         ) : vista === "vendedores" && usuario.rol === "DUENO" ? (
           <Vendedores />
         ) : vista === "caja" ? (
-          <Caja usuario={usuario} />
+          <Caja irAVentas={() => seleccionarVista("ventas")} />
         ) : vista === "ventas" ? (
-          <Ventas usuario={usuario} onVentaRegistrada={cargarProductos} onIrACaja={() => setVista("caja")} />
-        ) : vista === "inventario" && usuario.rol === "DUENO" ? (
-          <Inventario busquedaInicial={busquedaInventario} onAjusteRegistrado={cargarProductos} />
+          <Ventas usuario={usuario} onVentaRegistrada={cargarProductos} onIrACaja={() => seleccionarVista("caja")} />
+        ) : ["inventario", "insumos"].includes(vista) && usuario.rol === "DUENO" ? (
+          <Inventario key={vista} soloInsumos={vista === "insumos"} ajusteInicial={vista === "inventario" ? ajusteInicial : null}
+            busquedaInicial={busquedaInventario} onAjusteRegistrado={cargarProductos}
+            borradorInsumo={borradorInsumo} cambiarBorrador={setBorradorInsumo} crearProveedor={() => {
+              setProveedorParaInsumo(true);
+              setVista("proveedores");
+              window.scrollTo(0, 0);
+            }} />
         ) : vista === "compras" && usuario.rol === "DUENO" ? (
           <Compras
             productoInicial={productoSugerido}
@@ -346,79 +390,19 @@ async function guardarSoloImagen() {
             onCompraRegistrada={cargarProductos}
           />
         ) : vista === "proveedores" && usuario.rol === "DUENO" ? (
-        <Proveedores onVolver={volverAProductos} />
+        <Proveedores inicioEnAlta={proveedorParaInsumo} onVolver={proveedorParaInsumo ? () => seleccionarVista("insumos") : volverAProductos}
+          alCrear={proveedorParaInsumo ? (id) => setBorradorInsumo((datos) => datos && { ...datos, proveedorId: String(id) }) : undefined} />
       ) : (
         <div className="modulo modulo-pila productos">
         <CabeceraModulo modulo="productos" titulo="Gestión de productos" descripcion="Consulta el catálogo y supervisa el inventario." />
 
-        <section className="estadisticas">
-          <article className="estadistica">
-            <p>Productos cargados</p>
-            <strong>{productos.length}</strong>
-            <span>Registros recibidos de Oracle</span>
-          </article>
+        <dl className="resumen-modulo">
+          <TarjetaDato titulo="Productos cargados" tono="dorado" arte="cupcake-chef" icono="M12 3l8 5v8l-8 5-8-5V8z M4 8l8 5 8-5 M12 13v8">{cargando ? "—" : productos.length}</TarjetaDato>
+          <TarjetaDato titulo="Productos en stock crítico" tono="lavanda" arte="abastecimiento" icono="M12 3 2 20h20z M12 9v4m0 3h.01">{cargando ? "—" : stockCritico}</TarjetaDato>
+        </dl>
 
-          <article className="estadistica">
-            <p>Productos en stock crítico</p>
-            <strong>{stockCritico}</strong>
-            <span>Productos activos que requieren abastecimiento</span>
-          </article>
-        </section>
-
-{alertas.length > 0 && (
-  <section className="panel alertas-inventario">
-    <h2>Alertas de inventario</h2>
-
-    <p>Productos que requieren abastecimiento.</p>
-
-    <div className="tabla-contenedor" tabIndex={0} role="region" aria-label="Alertas de stock">
-      <table>
-        <thead>
-          <tr>
-            <th>Producto</th>
-            <th>Stock actual</th>
-            <th>Stock crítico</th>
-            <th>Situación</th>
-            {usuario.rol === "DUENO" && <th>Acciones</th>}
-          </tr>
-        </thead>
-
-        <tbody>
-          {alertas.map((producto) => (
-            <tr key={producto.ID_PRODUCTO}>
-              <td>{producto.NOMBRE_PRODUCTO}</td>
-
-              <td>
-                {producto.STOCK_ACTUAL} {producto.CODIGO_UNIDAD}
-              </td>
-
-              <td>
-                {producto.STOCK_CRITICO} {producto.CODIGO_UNIDAD}
-              </td>
-
-              <td>
-                <strong className="stock-bajo">
-                  Requiere abastecimiento
-                </strong>
-              </td>
-              {usuario.rol === "DUENO" && (
-                <td>
-                  <button type="button" className="boton-abastecer"
-                    onClick={() => irACompras(producto)}>
-                    Abastecer
-                  </button>
-                </td>
-              )}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  </section>
-)}
-
-
-        <section className="panel">
+        <div className="productos-distribucion">
+        <section className="panel productos-catalogo">
           <div className="panel-encabezado">
             <div>
               <h2>Catálogo de productos</h2>
@@ -444,6 +428,13 @@ async function guardarSoloImagen() {
     onSubmit={guardarProducto}
   >
     <h3>{productoEditando ? `Editar: ${productoEditando.NOMBRE_PRODUCTO}` : "Registrar nuevo producto"}</h3>
+    <p className="nota-edicion">Todos los campos de texto y selección de este producto son obligatorios.</p>
+    <div className="acciones-formulario">
+      <button className="secundario" type="button" disabled={guardando} onClick={() => seleccionarVista("proveedores")}>
+        Gestionar proveedores
+      </button>
+      {productoEditando?.PROVEEDOR_ACTUAL && <span>Último proveedor: {productoEditando.PROVEEDOR_ACTUAL}</span>}
+    </div>
     {productoEditando && (
       <p className="nota-edicion">
         El stock actual no se edita aquí. Los cambios de unidad pueden estar
@@ -468,6 +459,7 @@ async function guardarSoloImagen() {
         Código de barras
         <input
           name="codigoBarra"
+          placeholder="Ej. 7801234567890"
           value={nuevoProducto.codigoBarra}
           onChange={actualizarProducto}
           maxLength={50}
@@ -642,7 +634,9 @@ async function guardarSoloImagen() {
                   <tr key={producto.ID_PRODUCTO}>
                     <td><div className="producto-identidad">
                       {miniaturas[producto.ID_PRODUCTO]?.ruta && <img src={miniaturas[producto.ID_PRODUCTO].ruta} alt="" width="44" height="44" loading="lazy" decoding="async" />}
-                      <strong>{producto.NOMBRE_PRODUCTO}</strong>
+                      <div><strong>{producto.NOMBRE_PRODUCTO}</strong>
+                        {usuario.rol === "DUENO" && <small className="proveedor-actual">{producto.PROVEEDOR_ACTUAL || "Sin abastecimientos registrados"}</small>}
+                      </div>
                     </div></td>
                     <td>{producto.CODIGO_BARRA}</td>
                     <td className="modulo-numero">
@@ -653,8 +647,8 @@ async function guardarSoloImagen() {
                         className={
                           Number(producto.STOCK_ACTUAL) <=
                           Number(producto.STOCK_CRITICO)
-                            ? "stock-bajo"
-                            : ""
+                            ? "stock-pildora stock-bajo"
+                            : "stock-pildora"
                         }
                       >
                         {producto.STOCK_ACTUAL}
@@ -664,6 +658,14 @@ async function guardarSoloImagen() {
                     {usuario.rol === "DUENO" && (
                       <td>
                         <div className="acciones-producto">
+                          {producto.ESTADO_PRODUCTO === "S" && [[1, "Añadir stock"], [-1, "Quitar stock"]].map(([sentido, etiqueta]) =>
+                            <button key={sentido} className="secundario" type="button" onClick={() => {
+                              if (!permitirSalir("inventario")) return;
+                              setBusquedaInventario(producto.NOMBRE_PRODUCTO);
+                              setAjusteInicial({ id: producto.ID_PRODUCTO, sentido });
+                              setVista("inventario");
+                              window.scrollTo(0, 0);
+                            }}>{etiqueta}</button>)}
                           <button
                             type="button"
                             className="boton-editar"
@@ -690,13 +692,17 @@ async function guardarSoloImagen() {
           </div>
 
           {!cargando && !error && productosFiltrados.length === 0 && (
-            <div className="modulo-vacio">
+            <div className="modulo-vacio vacio-ilustrado">
+              <img src="/branding/abastecimiento.svg" alt="" />
               <h3>No hay productos para mostrar</h3>
               <p>
                 {busqueda
                   ? "No encontramos productos con esa búsqueda."
-                  : "La tabla PRODUCTO todavía no tiene registros."}
+                  : "Todavía no hay productos registrados."}
               </p>
+              {busqueda && <button className="secundario" type="button" onClick={() => setBusqueda("")}>Limpiar búsqueda</button>}
+              {!busqueda && !mostrarFormulario && usuario.rol === "DUENO" &&
+                <button type="button" onClick={abrirFormulario}>Registrar primer producto</button>}
             </div>
           )}
 
@@ -705,10 +711,69 @@ async function guardarSoloImagen() {
             La API actualmente consulta un máximo de 20.
           </div>
         </section>
+        <aside className="panel productos-resumen">
+          <h2>Resumen del catálogo</h2>
+          <dl>{[["Productos cargados", productos.length], ["Productos activos", productos.filter((p) => p.ESTADO_PRODUCTO === "S").length],
+            ["Productos inactivos", productos.filter((p) => p.ESTADO_PRODUCTO === "N").length]].map(([nombre, conteo]) =>
+            <div key={nombre}><dt>{nombre}</dt><dd>{cargando || error ? "—" : conteo}</dd></div>)}</dl>
+          <img src="/branding/cupcake-chef.svg" alt="" />
+        </aside>
+        </div>
+{alertas.length > 0 && (
+  <section className="panel alertas-inventario">
+    <h2>Alertas de inventario</h2>
+
+    <p>Productos que requieren abastecimiento.</p>
+
+    <div className="tabla-contenedor" tabIndex={0} role="region" aria-label="Alertas de stock">
+      <table>
+        <thead>
+          <tr>
+            <th>Producto</th>
+            <th>Stock actual</th>
+            <th>Stock crítico</th>
+            <th>Situación</th>
+            {usuario.rol === "DUENO" && <th>Acciones</th>}
+          </tr>
+        </thead>
+
+        <tbody>
+          {alertas.map((producto) => (
+            <tr key={producto.ID_PRODUCTO}>
+              <td>{producto.NOMBRE_PRODUCTO}</td>
+
+              <td>
+                {producto.STOCK_ACTUAL} {producto.CODIGO_UNIDAD}
+              </td>
+
+              <td>
+                {producto.STOCK_CRITICO} {producto.CODIGO_UNIDAD}
+              </td>
+
+              <td>
+                <strong className="stock-bajo">
+                  Requiere abastecimiento
+                </strong>
+              </td>
+              {usuario.rol === "DUENO" && (
+                <td>
+                  <button type="button" className="boton-abastecer"
+                    onClick={() => irACompras(producto)}>
+                    Abastecer
+                  </button>
+                </td>
+              )}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  </section>
+)}
         </div>
         )}
       </main>
-    </div>
+    </div></Borradores.Provider>
   );
 }
 

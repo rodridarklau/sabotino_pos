@@ -23,6 +23,14 @@ async function filas(c, sql, binds = {}) {
   return (await c.execute(sql, binds, opciones)).rows;
 }
 
+const nombreCajaPrincipal = "MAIN";
+
+async function buscarCajaPrincipal(c) {
+  const [caja] = await filas(c, `SELECT ID_CAJA, NOMBRE_CAJA, ESTADO_OPERATIVO
+    FROM CAJA_TERMINAL WHERE NOMBRE_CAJA = :nombre`, { nombre: nombreCajaPrincipal });
+  return caja ?? null;
+}
+
 async function autorizar(req, res, operacion, escritura = false) {
   const usuario = req.session?.usuario;
   if (!idValido(usuario?.id)) return fallo(res, 401, "Debes iniciar sesión");
@@ -62,4 +70,5 @@ async function procedimiento(c, nombre, binds) {
   return valor;
 }
 
-module.exports = { autorizar, centavos, fallo, filas, idValido, maximo, procedimiento, salida, unidades };
+module.exports = { autorizar, buscarCajaPrincipal, centavos, fallo, filas, idValido, maximo,
+  nombreCajaPrincipal, procedimiento, salida, unidades };

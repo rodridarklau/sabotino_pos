@@ -16,13 +16,21 @@ before(async () => {
       llamadas.push({ sql, binds });
       const nombre = /^BEGIN (SAB_[A-Z_]+)\(/.exec(sql)?.[1];
       if (nombre) {
+        if (nombre === "SAB_C_CAJA_TERMINAL") {
+          escenario.caja = { ID_CAJA: 17, NOMBRE_CAJA: "MAIN", ESTADO_OPERATIVO: "S" };
+          if (escenario.duplicado) throw { errorNum: 1 };
+          return { outBinds: { resultado: 17 } };
+        }
         if (nombre === "SAB_CERRAR_CAJA" && escenario.espera) await escenario.espera;
         if (escenario.error) throw escenario.error;
         const valor = { SAB_ABRIR_CAJA: 8, SAB_CERRAR_CAJA: -2.25, SAB_C_CAJA_TERMINAL: 3 }[nombre];
         return { outBinds: { resultado: valor } };
       }
       if (sql.startsWith("SELECT R.NOMBRE_ROL")) return { rows: [{ NOMBRE_ROL: escenario.rol }] };
-      if (sql.includes("FROM CAJA_TERMINAL C")) return { rows: [{ ID_CAJA: 1, NOMBRE_CAJA: "Principal" }] };
+      if (sql.includes("FROM CAJA_TERMINAL WHERE NOMBRE_CAJA")) {
+        assert.equal(binds.nombre, "MAIN");
+        return { rows: escenario.caja ? [escenario.caja] : [] };
+      }
       if (sql.includes("FROM TURNO_CAJA T JOIN")) {
         const turnos = [{ ID_TURNO_CAJA: 8, ESTADO_TURNO: "ABIERTO" },
           { ID_TURNO_CAJA: 9, ESTADO_TURNO: "CERRADO", CIERRE_REAL_EFECTIVO: 10 }];
@@ -33,6 +41,7 @@ before(async () => {
       }
       if (sql.includes("FROM METODO_PAGO")) return { rows: [{ NOMBRE_METODO: "EFECTIVO", TOTAL: 12.5 }] };
       if (sql.includes("COUNT(*) AS BORRADORES")) return { rows: [{ BORRADORES: 1 }] };
+      if (sql.includes("COUNT(*) AS CANTIDAD")) return { rows: [{ CANTIDAD: 1, TOTAL: 12.5 }] };
       if (sql.includes("FROM VENTA V")) return { rows: [{ ID_VENTA: 10, TOTAL_VENTA: 12.5 }] };
       if (sql.includes("FROM LOG_AUDITORIA_CAJA")) return { rows: [{ ID_LOG_CAJA: 1, TIPO_OPERACION: "APERTURA" }] };
       assert.fail(`SQL inesperado: ${sql}`);
@@ -57,7 +66,8 @@ after(async () => {
 
 beforeEach(() => {
   llamadas = [];
-  escenario = { usuario: { id: 7, rol: "VENDEDOR" }, rol: "VENDEDOR" };
+  escenario = { usuario: { id: 7, rol: "VENDEDOR" }, rol: "VENDEDOR",
+    caja: { ID_CAJA: 17, NOMBRE_CAJA: "MAIN", ESTADO_OPERATIVO: "S" } };
 });
 
 const salida = { dir: oracledb.BIND_OUT, type: oracledb.NUMBER };
@@ -72,7 +82,7 @@ const caja = { nombre: " Principal ", ubicacion: " Mostrador ", estado: "S" };
 
 test("consulta terminales, activos, historial, pagos y ventas con alcance por rol", async () => {
   const catalogo = await (await leer("/caja")).json();
-  assert.equal(catalogo.cajas[0].ID_CAJA, 1);
+  assert.equal(catalogo.caja.ID_CAJA, 17);
   assert.equal(catalogo.activos[0].ID_TURNO_CAJA, 8);
   const historial = await (await leer("/caja/turnos?cajaId=1&pagina=2")).json();
   assert.equal(historial.turnos[0].CIERRE_REAL_EFECTIVO, 10);
@@ -81,7 +91,7 @@ test("consulta terminales, activos, historial, pagos y ventas con alcance por ro
   assert.deepEqual([detalle.pagos.length, detalle.ventas.length, detalle.auditoria.length, detalle.borradores], [1, 1, 1, 1]);
   const consultaPagos = llamadas.find(({ sql }) => sql.includes("FROM METODO_PAGO"));
   assert.match(consultaPagos.sql, /ESTADO_VENTA = 'CONFIRMADA'/);
-  const consultaVentas = llamadas.find(({ sql }) => sql.includes("FROM VENTA V"));
+  const consultaVentas = llamadas.find(({ sql }) => sql.startsWith("SELECT V.ID_VENTA"));
   assert.match(consultaVentas.sql, /V.ID_USUARIO = :actorId/);
   assert.equal(consultaVentas.binds.dueno, 0);
   assert.equal((await leer("/caja/turnos/99")).status, 404);
@@ -92,7 +102,7 @@ test("valida sesión y rol antes de permitir administrar terminales", async () =
   escenario.usuario = null;
   assert.equal((await leer("/caja")).status, 401);
   escenario.usuario = { id: 7, rol: "VENDEDOR" };
-  assert.equal((await enviar("/caja/terminales", caja)).status, 403);
+  assert.equal((await enviar("/caja/terminales", caja)).status, 404);
   escenario.usuario.rol = "DUENO";
   assert.equal((await cerrar()).status, 403);
   assert.deepEqual(escrituras(), []);
@@ -101,7 +111,7 @@ test("valida sesión y rol antes de permitir administrar terminales", async () =
 test("Caja y Ventas comparten la apertura con el actor de la sesión", async () => {
   assert.equal((await enviar("/caja/turnos", { cajaId: 1, efectivoInicial: 0.001 })).status, 400);
   for (const ruta of ["/caja/turnos", "/ventas/turnos"]) {
-    const respuesta = await enviar(ruta, { actorId: 99, cajaId: 1, efectivoInicial: 20.5 });
+    const respuesta = await enviar(ruta, { actorId: 99, efectivoInicial: 20.5 });
     assert.equal(respuesta.status, 201);
     assert.deepEqual(await respuesta.json(), { turnoId: 8 });
   }
@@ -109,11 +119,13 @@ test("Caja y Ventas comparten la apertura con el actor de la sesión", async () 
   for (const llamada of escrituras()) {
     assert.deepEqual(llamada, {
       sql: "BEGIN SAB_ABRIR_CAJA(:actorId, :cajaId, :efectivoInicial, :resultado); END;",
-      binds: { actorId: 7, cajaId: 1, efectivoInicial: 20.5, resultado: salida }
+      binds: { actorId: 7, cajaId: 17, efectivoInicial: 20.5, resultado: salida }
     });
   }
-  escenario.error = { errorNum: 20104 };
   assert.equal((await enviar("/caja/turnos", { cajaId: 1, efectivoInicial: 0 })).status, 409);
+  assert.equal(escrituras().length, 2);
+  escenario.error = { errorNum: 20104 };
+  assert.equal((await enviar("/caja/turnos", { efectivoInicial: 0 })).status, 409);
 });
 
 test("pasa los tres importes reales al cierre y usa el descuadre de Oracle", async () => {
@@ -161,17 +173,18 @@ test("bloquea cierres y otras escrituras simultáneas del mismo usuario", async 
   }
 });
 
-test("administra terminales mediante las firmas Oracle y conserva referencias existentes", async () => {
+test("crea MAIN solo como dueño, recupera una creación concurrente y reutiliza el ID real", async () => {
+  escenario.caja = null;
+  assert.equal((await enviar("/caja/turnos", { efectivoInicial: 0 })).status, 409);
+  assert.equal(escrituras().length, 0);
   escenario.usuario.rol = escenario.rol = "DUENO";
-  assert.equal((await enviar("/caja/terminales", { ...caja, nombre: "á".repeat(26) })).status, 400);
-  assert.equal((await enviar("/caja/terminales", caja)).status, 201);
-  assert.equal((await enviar("/caja/terminales/3", { ...caja, estado: "N" }, "PUT")).status, 200);
-  escenario.error = { errorNum: 2292 };
-  const borrado = await enviar("/caja/terminales/3", {}, "DELETE");
-  assert.equal(borrado.status, 409);
-  assert.deepEqual(escrituras(), [
-    { sql: "BEGIN SAB_C_CAJA_TERMINAL(:actorId, :nombre, :ubicacion, :estado, :resultado); END;", binds: { actorId: 7, nombre: "Principal", ubicacion: "Mostrador", estado: "S", resultado: salida } },
-    { sql: "BEGIN SAB_U_CAJA_TERMINAL(:actorId, :cajaId, :nombre, :ubicacion, :estado); END;", binds: { actorId: 7, cajaId: 3, nombre: "Principal", ubicacion: "Mostrador", estado: "N" } },
-    { sql: "BEGIN SAB_D_CAJA_TERMINAL(:actorId, :cajaId); END;", binds: { actorId: 7, cajaId: 3 } }
-  ]);
+  escenario.duplicado = true;
+  assert.equal((await enviar("/caja/turnos", { efectivoInicial: 0 })).status, 201);
+  assert.equal((await enviar("/ventas/turnos", { efectivoInicial: 0 })).status, 201);
+  const [crear, ...abrir] = escrituras();
+  assert.deepEqual(crear.binds, { actorId: 7, nombre: "MAIN", ubicacion: null, estado: "S", resultado: salida });
+  assert.deepEqual(abrir.map(({ binds }) => binds.cajaId), [17, 17]);
+  for (const [ruta, metodo] of [["/caja/terminales", "POST"], ["/caja/terminales/17", "PUT"], ["/caja/terminales/17", "DELETE"]]) {
+    assert.equal((await enviar(ruta, caja, metodo)).status, 404);
+  }
 });

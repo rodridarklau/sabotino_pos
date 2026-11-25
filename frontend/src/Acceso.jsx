@@ -224,6 +224,7 @@ function Acceso() {
   if (pantalla === "panel" && usuario) {
     return (
       <App
+        key={usuario.id}
         usuario={usuario}
         onLogout={cerrarSesion}
       />
@@ -338,12 +339,15 @@ function Acceso() {
                 name="password"
                 type="password"
                 autoComplete="new-password"
-                minLength={12}
+                minLength={8}
+                maxLength={128}
+                aria-describedby="requisitos-clave-dueno"
                 value={registro.password}
                 onChange={actualizarRegistro}
                 required
               />
 
+              <small id="requisitos-clave-dueno">Usa entre 8 y 128 caracteres.</small>
               <label>Confirmar contraseña</label>
               <input
                 name="confirmarPassword"

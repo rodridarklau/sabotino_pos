@@ -13,13 +13,14 @@ export function Navegacion({ vista, usuario, seleccionar, salir }) {
   const control = useRef(null);
 
   useEffect(() => {
-    const pantalla = window.matchMedia("(max-width: 1220px)");
+    const pantalla = window.matchMedia("(max-width: 900px)");
     function cerrarAlCambiar() { abrir(false); }
     pantalla.addEventListener("change", cerrarAlCambiar);
     return () => pantalla.removeEventListener("change", cerrarAlCambiar);
   }, []);
 
-  return <header className="barra-principal" onKeyDown={(evento) => {
+  const nombre = usuario.nombre?.trim().split(/\s+/)[0];
+  return <><aside className="barra-principal" onKeyDown={(evento) => {
     if (abierto && evento.key === "Escape") {
       abrir(false);
       control.current?.focus();
@@ -46,6 +47,13 @@ export function Navegacion({ vista, usuario, seleccionar, salir }) {
         </div>;
       })}
     </nav>
+  </aside>
+  <header className="barra-superior">
+    <div className="barra-saludo">
+      <img src="/branding/registro.svg" alt="" width="44" height="44" />
+      <div><strong>{nombre ? `¡Hola, ${nombre}!` : "¡Hola!"}</strong>
+        <p>Bienvenido a SABOTINO, tu pastelería digital.</p></div>
+    </div>
     <div className="barra-usuario">
       <div className="perfil">
         <span className="perfil-inicial" aria-hidden="true">{usuario.nombre?.trim().slice(0, 1) || "S"}</span>
@@ -55,6 +63,7 @@ export function Navegacion({ vista, usuario, seleccionar, salir }) {
         <Icono trazado="M10 17l5-5-5-5 M15 12H3 M14 4h6v16h-6" />Cerrar sesión
       </button>
     </div>
-  </header>;
+  </header>
+  </>;
 }
 

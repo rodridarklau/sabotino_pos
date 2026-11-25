@@ -104,11 +104,12 @@ Cada procedimiento de escritura confirma individualmente o revierte su transacci
 
 ## Caja, arqueo e historial
 
-- El dueño administra terminales con `SAB_C_CAJA_TERMINAL(actor, nombre, ubicación, estado, id OUT)`, `SAB_U_CAJA_TERMINAL(actor, id, nombre, ubicación, estado)` y `SAB_D_CAJA_TERMINAL(actor, id)`. El nombre es único y admite 50 bytes, la ubicación es opcional y admite 100 bytes, y el estado solo acepta `S/N`. `SEQ_CAJA_TERMINAL` genera el ID. Las referencias desde `TURNO_CAJA` y `HORARIO_VENDEDOR` tienen borrado `NO ACTION`, por lo que conservar el historial implica marcar la terminal fuera de servicio.
+- `CAJA_TERMINAL.NOMBRE_CAJA` es único y admite 50 bytes. La ubicación es opcional y admite 100 bytes. El estado acepta `S/N` y `SEQ_CAJA_TERMINAL` genera el ID. Al solicitar la primera apertura, Express busca el nombre exacto `MAIN`. Si falta y el actor es dueño activo, llama a `SAB_C_CAJA_TERMINAL(actor, 'MAIN', NULL, 'S', id OUT)`. Una segunda lectura recupera el ID real, incluso si la creación inicial coincidió con otra solicitud. La restricción única impide duplicados y la apertura siguiente usa el bloqueo de Oracle. Si el dueño aún no preparó MAIN, el vendedor recibe un mensaje con ese requisito. Si MAIN ya existe fuera de servicio, se conserva su estado.
+- Las rutas de administración de terminales se retiraron de Express. Los procedimientos `SAB_U_CAJA_TERMINAL` y `SAB_D_CAJA_TERMINAL` siguen en Oracle. Los registros previos y las referencias `NO ACTION` desde `TURNO_CAJA` y `HORARIO_VENDEDOR` se conservan. Las nuevas aperturas, ventas y asignaciones de horario usan MAIN. Los turnos cerrados anteriores siguen consultables según el rol.
 - Dueños y vendedores activos pueden abrir y cerrar turnos conforme a `SAB_VALIDAR_USUARIO`. Los procedimientos usan derechos del definidor. El catálogo muestra los turnos activos a ambos roles. Los vendedores ven en el historial cerrado los turnos que abrieron o cerraron y, en el detalle, únicamente sus propias ventas. El arqueo siempre usa los pagos de todas las ventas confirmadas del turno.
 - `POST /api/caja/turnos` y el endpoint anterior `POST /api/ventas/turnos` comparten la llamada a `SAB_ABRIR_CAJA`. El procedimiento bloquea la terminal y excluye una segunda apertura simultánea. `POST /api/caja/turnos/:id/cierre` pasa los tres importes reales a `SAB_CERRAR_CAJA`. El procedimiento bloquea el turno, verifica que siga abierto y rechaza ventas en borrador (`ORA-20143`). Venta y cierre usan el mismo bloqueo del turno. Al terminar, cada procedimiento confirma sus cambios o revierte ante una excepción.
 - El arqueo proyectado suma saldo inicial y pagos de ventas confirmadas por método. Los importes reales de efectivo, tarjeta y transferencia se ingresan explícitamente. Oracle recalcula el esperado al cerrar. En el historial se muestran los importes de sistema y reales almacenados en `TURNO_CAJA` y el descuadre registrado en `LOG_AUDITORIA_CAJA`. El trigger `SAB_TRG_TURNO_INMUTABLE` protege turnos cerrados y Oracle devuelve `ORA-20142` ante un segundo intento de cierre.
-- `GET /api/caja` lista terminales y turnos abiertos. `GET /api/caja/turnos` pagina y filtra turnos cerrados. `GET /api/caja/turnos/:id` entrega los importes por método, las ventas visibles, la cantidad de borradores y la auditoría. Estos endpoints se verificaron con `SELECT` contra la base existente. Los casos de apertura, cierre, administración y conflictos están cubiertos por mocks en `backend/test/caja.test.js`.
+- `GET /api/caja` muestra MAIN, su turno activo y el total de ventas confirmadas del día comercial en Santiago. `GET /api/caja/turnos` pagina y filtra turnos cerrados. `GET /api/caja/turnos/:id` entrega los importes por método, ventas visibles, resumen de confirmadas, borradores y auditoría. La inicialización de MAIN y las consultas modificadas se verificaron con respuestas simuladas.
 
 ## Vendedores y horarios
 
@@ -118,7 +119,7 @@ Cada procedimiento de escritura confirma individualmente o revierte su transacci
 
 ## Comprobantes de compra
 
-En Ventas, **Ver comprobante** aparece tras confirmar o al abrir el detalle histórico de una venta confirmada. La vista responde en móvil y ofrece descarga PDF e impresión. Para impresión térmica, usar papel de 80 mm y escala real en el controlador. El [PDF de ejemplo](../comprobante-ejemplo.pdf) y su [vista renderizada](../comprobante-ejemplo.png) usan datos simulados.
+En Ventas, **¿Desea comprobante?** aparece tras confirmar. Si el usuario acepta, se abre la vista previa. Al cerrar la vista o rechazar el comprobante se prepara la siguiente venta. La vista también está disponible en el detalle histórico de una venta confirmada. Ofrece descarga PDF e impresión. Para impresión térmica, usar papel de 80 mm y escala real en el controlador. El [PDF de ejemplo](../comprobante-ejemplo.pdf) y su [vista renderizada](../comprobante-ejemplo.png) usan datos simulados.
 
 - El modelo consulta `VENTA`, `DETALLE_VENTA`, `PAGO_VENTA`, `METODO_PAGO`, `PRODUCTO`, `UNIDAD_MEDIDA`, `USUARIO`, `TURNO_CAJA` y `CAJA_TERMINAL`. Solo se emiten para ventas confirmadas y visibles por el actor. Los importes y cantidades vienen de la venta. Los nombres descriptivos se consultan al emitir la copia porque la venta no guarda una instantánea de esos textos.
 - El logo original y la versión PNG se distribuyen en `frontend/public/branding/`. PDFKit necesita acceso al PNG desde el backend en esa ruta relativa y lo incrusta junto a su máscara de transparencia. El correo usa el mismo PNG inline y lleva adjunto el PDF. El comprobante es informativo y el documento usa formato chileno y moneda CLP.
@@ -155,6 +156,42 @@ Los períodos se eligen en `America/Santiago` y se consultan con intervalos `[de
 - Desde `backend`, `node --test test/*.test.js` ejecuta las pruebas con mocks. `node test/reportes-oracle.readonly.js` comprueba cálculos Oracle con filas simuladas definidas dentro de CTE y sin modificar datos. El comprobante térmico conserva su implementación independiente del PDF A4.
 
 ## Incorporación de resultados
+
+### Alta de insumos y edición pendiente
+
+`POST /api/inventario/insumos` usa el actor de la sesión validada y llama a `SAB_C_INSUMO(actor, unidad, proveedor, nombre, costo, stock inicial, stock crítico, estado, id OUT)`. Según el contrato suministrado, Oracle valida al dueño y las referencias, usa `SEQ_INSUMO` y controla `COMMIT` y `ROLLBACK`. Express devuelve el ID solo tras recibir una salida válida. La pantalla Insumos incluye registros inactivos para consultar el resultado del alta, mientras el inventario general, Compras y los ajustes conservan su selección de activos. La llamada se comprobó con Oracle simulado.
+
+La pantalla Insumos usa `SAB_AJUSTAR_STOCK_INSUMO` para los ajustes. Para evaluar una futura edición de datos, ejecutar estas consultas de solo lectura en SQL Developer con el esquema de SABOTINO seleccionado. Compartir las columnas y restricciones de `INSUMO` y el resultado de los bloques de rutinas correspondientes de [inventario.sql](inventario.sql).
+
+```sql
+SELECT owner, name, type, referenced_name, referenced_type
+FROM all_dependencies
+WHERE owner = SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA')
+  AND referenced_owner = owner
+  AND referenced_name = 'INSUMO'
+ORDER BY type, name;
+
+SELECT column_name, data_type, data_length, data_precision, data_scale,
+       nullable, data_default
+FROM all_tab_columns
+WHERE owner = SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA')
+  AND table_name = 'INSUMO'
+ORDER BY column_id;
+```
+
+El proveedor visible en Productos se toma del abastecimiento real más reciente, ordenado por fecha y por ID en caso de empate. La vista inversa en Proveedores usa el mismo criterio. El esquema documentado carece de un vínculo editable independiente para el proveedor de un producto.
+
+El proveedor «SABOTINO — Producción propia» se registra mediante el formulario existente y `SAB_C_PROVEEDOR` con RUT empresarial aportado por el dueño. React ofrece el registro real como alternativa seleccionable en Compras y lo preselecciona al crear insumos. El alta de productos sigue sin proveedor obligatorio, y una asociación histórica solo se origina en un abastecimiento real.
+
+El historial de Compras pagina `ABASTECIMIENTO_PROVEEDOR` en orden descendente por fecha e ID. `SAB_COMPRA_MULTIPLE` invoca los procedimientos CORE de abastecimiento. El CORE de insumos actualiza el insumo sin dejar un movimiento de compra equivalente según la documentación disponible. Para contrastar dependencias de las rutinas con SQL Developer se puede ejecutar esta consulta de solo lectura.
+
+```sql
+SELECT name, type, referenced_name, referenced_type
+FROM all_dependencies
+WHERE owner = SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA')
+  AND (name = 'SAB_COMPRA_MULTIPLE' OR name LIKE 'SAB_ABASTECER%')
+ORDER BY name, referenced_type, referenced_name;
+```
 
 1. Confirmar el esquema y reconciliar el inventario de objetos con las referencias del código, incluidos sinónimos y dependencias entre esquemas.
 2. Construir el diccionario de columnas y restricciones y el diagrama de relaciones con la extracción de Oracle.

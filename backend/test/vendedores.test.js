@@ -23,6 +23,10 @@ before(async () => {
       if (sql.startsWith("SELECT U.ID_ROL")) return { rows: binds.id === 8 ? [{ ID_ROL: 3 }] : [] };
       if (sql.startsWith("SELECT U.ID_USUARIO FROM")) return { rows: binds.vendedorId === 8 ? [{ ID_USUARIO: 8 }] : [] };
       if (sql.startsWith("SELECT H.ID_HORARIO FROM")) return { rows: binds.id === 9 ? [{ ID_HORARIO: 9 }] : [] };
+      if (sql.includes("FROM CAJA_TERMINAL WHERE NOMBRE_CAJA")) {
+        assert.equal(binds.nombre, "MAIN");
+        return { rows: [{ ID_CAJA: 1, NOMBRE_CAJA: "MAIN", ESTADO_OPERATIVO: "S" }] };
+      }
       assert.match(sql, /^SELECT/);
       return { rows: [] };
     },

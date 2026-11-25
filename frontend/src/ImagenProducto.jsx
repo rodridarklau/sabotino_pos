@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
+import { normalizar, sugerirImagen } from "./bibliotecaProducto.js";
 import "./ImagenProducto.css";
 
 const api = "/api/productos-imagenes";
-const normalizar = (valor) => valor.toLowerCase().normalize("NFD").replace(/\p{M}/gu, "").trim();
 
 export default function ImagenProducto({ id, nombre, categoriaProducto, cambio, alCambiar, bloqueado, guardarSoloImagen }) {
   const [biblioteca, setBiblioteca] = useState([]);
@@ -53,10 +53,7 @@ export default function ImagenProducto({ id, nombre, categoriaProducto, cambio, 
   const categorias = [...new Set(biblioteca.map((b) => b.categoria))];
   const visibles = biblioteca.filter((b) => (!categoria || categoria === b.categoria) &&
     [b.nombre, ...b.sinonimos].some((valor) => normalizar(valor).includes(normalizar(buscar))));
-  const coincidencias = nombre?.trim() ? biblioteca.filter((b) =>
-    [b.nombre, ...b.sinonimos].some((valor) => normalizar(valor) === normalizar(nombre))) : [];
-  const sugerida = coincidencias.find((b) => categoriaProducto && normalizar(b.categoria) === normalizar(categoriaProducto))
-    ?? (coincidencias.length === 1 ? coincidencias[0] : null);
+  const sugerida = sugerirImagen(biblioteca, nombre, categoriaProducto);
   const deshabilitado = bloqueado || Boolean(id && !guardado);
 
   function elegir(imagen) {

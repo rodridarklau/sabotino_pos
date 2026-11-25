@@ -196,6 +196,10 @@ router.post("/", async (req, res) => {
 ========================================= */
 
 router.get("/historial", async (req, res) => {
+  const pagina = req.query.pagina === undefined ? 1 : Number(req.query.pagina);
+  if (!Number.isSafeInteger(pagina) || pagina < 1 || pagina > Math.floor(Number.MAX_SAFE_INTEGER / 100)) {
+    return res.status(400).json({ estado: "ERROR", mensaje: "Página de historial inválida" });
+  }
   let conexion;
 
   try {
@@ -232,15 +236,17 @@ router.get("/historial", async (req, res) => {
        ORDER BY A.FECHA_COMPRA DESC,
                 A.ID_ABASTECIMIENTO DESC
 
-       FETCH FIRST 100 ROWS ONLY`,
-      [],
+       OFFSET :desplazamiento ROWS FETCH NEXT 101 ROWS ONLY`,
+      { desplazamiento: (pagina - 1) * 100 },
       { outFormat: oracledb.OUT_FORMAT_OBJECT }
     );
 
+    const movimientos = resultado.rows.slice(0, 100);
     res.json({
       estado: "OK",
-      totalMostrados: resultado.rows.length,
-      movimientos: resultado.rows
+      totalMostrados: movimientos.length,
+      movimientos,
+      hayMas: resultado.rows.length > 100
     });
 
   } catch (error) {
@@ -265,6 +271,8 @@ router.get("/historial", async (req, res) => {
 /* =========================================
    LISTAR PROVEEDORES
 ========================================= */
+
+const { ULTIMO_PROVEEDOR_PRODUCTO } = require("../config/catalogo-stock");
 
 router.get("/proveedores", async (req, res) => {
   let conexion;
@@ -299,10 +307,15 @@ router.get("/proveedores", async (req, res) => {
       proveedores.push(...filas);
     }
 
+    const vinculados = req.query.productos === "1" ? (await conexion.execute(
+      `SELECT A.ID_PROVEEDOR, P.ID_PRODUCTO, P.NOMBRE_PRODUCTO FROM (${ULTIMO_PROVEEDOR_PRODUCTO}) A
+       JOIN PRODUCTO P ON P.ID_PRODUCTO = A.ID_PRODUCTO ORDER BY P.NOMBRE_PRODUCTO, P.ID_PRODUCTO`,
+      [], { outFormat: oracledb.OUT_FORMAT_OBJECT }
+    )).rows : undefined;
     res.json({
       estado: "OK",
       total: proveedores.length,
-      proveedores
+      proveedores, vinculados
     });
 
   } catch (error) {

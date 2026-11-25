@@ -6,6 +6,7 @@
   ]],
   ["Gestión", [
     ["productos", "Productos", "M4 4h6v6H4z M14 4h6v6h-6z M4 14h6v6H4z M14 14h6v6h-6z"],
+    ["insumos", "Insumos", "M5 4h14l2 5v11H3V9z M3 9h18 M8 13h8", true],
     ["inventario", "Inventario", "M4 7h16v13H4z M3 4h18v3H3z M9 11h6", true],
     ["compras", "Compras", "M3 4h2l3 11h10l3-8H6 M9 20h.01 M17 20h.01", true],
     ["proveedores", "Proveedores", "M3 5h12v12H3z M15 9h4l2 4v4h-6 M7 19h.01 M18 19h.01", true]
