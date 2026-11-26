@@ -1,7 +1,6 @@
 const express = require("express");
-const oracledb = require("oracledb");
 const { obtenerConexion } = require("../config/database");
-const { PRODUCTOS_ACTIVOS, INSUMOS_ACTIVOS } = require("../config/catalogo-stock");
+const { consultarProcedimiento, ejecutarProcedimiento, entradaClob, numeroSalida } = require("../config/procedimientos");
 
 const router = express.Router();
 
@@ -16,30 +15,16 @@ router.use((req, res, next) => {
   next();
 });
 
-const opciones = { outFormat: oracledb.OUT_FORMAT_OBJECT };
-
 // Datos reales para los desplegables, sin asumir proveedores registrados.
 router.get("/catalogos", async (req, res) => {
   let conexion;
   try {
     conexion = await obtenerConexion();
-    const proveedores = await conexion.execute(
-      `SELECT ID_PROVEEDOR, RAZON_SOCIAL, RUT_PROVEEDOR
-       FROM PROVEEDOR ORDER BY RAZON_SOCIAL`, [], opciones
-    );
-    const productos = await conexion.execute(
-      `${PRODUCTOS_ACTIVOS} ORDER BY P.NOMBRE_PRODUCTO`, [], opciones
-    );
-    const insumos = await conexion.execute(
-      `${INSUMOS_ACTIVOS} ORDER BY I.NOMBRE_INSUMO`, [], opciones
-    );
-
-    res.json({
-      estado: "OK",
-      proveedores: proveedores.rows,
-      productos: productos.rows,
-      insumos: insumos.rows
-    });
+    const actorId = req.session.usuario.id;
+    const proveedores = await consultarProcedimiento(conexion, "SAB_API_COMPRAS_PROVEEDORES", { actorId });
+    const productos = await consultarProcedimiento(conexion, "SAB_API_STOCK_PRODUCTOS", { actorId });
+    const insumos = await consultarProcedimiento(conexion, "SAB_API_STOCK_INSUMOS", { actorId, incluirInactivos: 0 });
+    res.json({ estado: "OK", proveedores, productos, insumos });
   } catch (error) {
     console.error("Error consultando catálogos para compras:", error);
     res.status(500).json({ estado: "ERROR", mensaje: "No se pudieron consultar los datos para compras" });
@@ -63,20 +48,17 @@ router.post("/proveedores", async (req, res) => {
   let conexion;
   try {
     conexion = await obtenerConexion();
-    const resultado = await conexion.execute(
-      `BEGIN SAB_C_PROVEEDOR(:actorId, :rut, :razonSocial, :telefono, :email, :nuevoId); END;`,
-      {
-        actorId: req.session.usuario.id,
-        rut: rut.trim(),
-        razonSocial: razonSocial.trim(),
-        telefono: (telefono || "").trim() || null,
-        email: (email || "").trim() || null,
-        nuevoId: { type: oracledb.NUMBER, dir: oracledb.BIND_OUT }
-      }
-    );
+    const resultado = await ejecutarProcedimiento(conexion, "SAB_C_PROVEEDOR", {
+      actorId: req.session.usuario.id,
+      rut: rut.trim(),
+      razonSocial: razonSocial.trim(),
+      telefono: (telefono || "").trim() || null,
+      email: (email || "").trim() || null,
+      nuevoId: numeroSalida
+    });
     res.status(201).json({
       estado: "OK", mensaje: "Proveedor registrado correctamente",
-      idProveedor: resultado.outBinds.nuevoId
+      idProveedor: resultado.nuevoId
     });
   } catch (error) {
     console.error("Error registrando proveedor:", error);
@@ -143,29 +125,18 @@ router.post("/", async (req, res) => {
   try {
     // Tomar una conexión nueva del pool; no hay transacciones previas pendientes.
     conexion = await obtenerConexion();
-    const resultado = await conexion.execute(
-      `BEGIN
-         SAB_COMPRA_MULTIPLE(
-           :actorId, :articulosJson, :cantidadLineas, :totalCompra
-         );
-       END;`,
-      {
-        actorId: req.session.usuario.id,
-        articulosJson: {
-          val: JSON.stringify(normalizados),
-          type: oracledb.DB_TYPE_CLOB,
-          dir: oracledb.BIND_IN
-        },
-        cantidadLineas: { type: oracledb.NUMBER, dir: oracledb.BIND_OUT },
-        totalCompra: { type: oracledb.NUMBER, dir: oracledb.BIND_OUT }
-      }
-    );
-    console.log("Compra múltiple registrada:", resultado.outBinds.cantidadLineas, "líneas");
+    const resultado = await ejecutarProcedimiento(conexion, "SAB_COMPRA_MULTIPLE", {
+      actorId: req.session.usuario.id,
+      articulosJson: entradaClob(JSON.stringify(normalizados)),
+      cantidadLineas: numeroSalida,
+      totalCompra: numeroSalida
+    });
+    console.log("Compra múltiple registrada:", resultado.cantidadLineas, "líneas");
     res.status(201).json({
       estado: "OK",
       mensaje: "Compra registrada correctamente",
-      cantidadLineas: resultado.outBinds.cantidadLineas,
-      totalCompra: resultado.outBinds.totalCompra
+      cantidadLineas: resultado.cantidadLineas,
+      totalCompra: resultado.totalCompra
     });
   } catch (error) {
     console.error("Error en compra múltiple:", error.code);
@@ -205,48 +176,16 @@ router.get("/historial", async (req, res) => {
   try {
     conexion = await obtenerConexion();
 
-    const resultado = await conexion.execute(
-      `SELECT
-          A.ID_ABASTECIMIENTO,
-          TO_CHAR(A.FECHA_COMPRA, 'DD/MM/YYYY HH24:MI') AS FECHA_COMPRA,
-          P.NOMBRE_PRODUCTO,
-          U.CODIGO_UNIDAD,
-          PR.RAZON_SOCIAL AS PROVEEDOR,
-          US.NOMBRE_COMPLETO AS RESPONSABLE,
-          A.CANTIDAD_COMPRADA,
-          A.COSTO_UNITARIO_COMPRA,
-          ROUND(
-            A.CANTIDAD_COMPRADA * A.COSTO_UNITARIO_COMPRA,
-            2
-          ) AS TOTAL
-       FROM ABASTECIMIENTO_PROVEEDOR A
+    const filas = await consultarProcedimiento(conexion, "SAB_API_COMPRAS_HISTORIAL", {
+      actorId: req.session.usuario.id, desplazamiento: (pagina - 1) * 100
+    });
 
-       JOIN PRODUCTO P
-         ON A.ID_PRODUCTO = P.ID_PRODUCTO
-
-       JOIN UNIDAD_MEDIDA U
-         ON P.ID_UNIDAD = U.ID_UNIDAD
-
-       JOIN PROVEEDOR PR
-         ON A.ID_PROVEEDOR = PR.ID_PROVEEDOR
-
-       JOIN USUARIO US
-         ON A.ID_USUARIO = US.ID_USUARIO
-
-       ORDER BY A.FECHA_COMPRA DESC,
-                A.ID_ABASTECIMIENTO DESC
-
-       OFFSET :desplazamiento ROWS FETCH NEXT 101 ROWS ONLY`,
-      { desplazamiento: (pagina - 1) * 100 },
-      { outFormat: oracledb.OUT_FORMAT_OBJECT }
-    );
-
-    const movimientos = resultado.rows.slice(0, 100);
+    const movimientos = filas.slice(0, 100);
     res.json({
       estado: "OK",
       totalMostrados: movimientos.length,
       movimientos,
-      hayMas: resultado.rows.length > 100
+      hayMas: filas.length > 100
     });
 
   } catch (error) {
@@ -272,46 +211,16 @@ router.get("/historial", async (req, res) => {
    LISTAR PROVEEDORES
 ========================================= */
 
-const { ULTIMO_PROVEEDOR_PRODUCTO } = require("../config/catalogo-stock");
-
 router.get("/proveedores", async (req, res) => {
   let conexion;
-  let cursor;
 
   try {
     conexion = await obtenerConexion();
 
-    const resultado = await conexion.execute(
-      `BEGIN
-         SAB_L_PROVEEDOR(:actorId, :resultado);
-       END;`,
-      {
-        actorId: req.session.usuario.id,
-        resultado: {
-          dir: oracledb.BIND_OUT,
-          type: oracledb.CURSOR
-        }
-      },
-      { outFormat: oracledb.OUT_FORMAT_OBJECT }
-    );
-
-    cursor = resultado.outBinds.resultado;
-
-    const proveedores = [];
-
-    while (true) {
-      const filas = await cursor.getRows(200);
-
-      if (filas.length === 0) break;
-
-      proveedores.push(...filas);
-    }
-
-    const vinculados = req.query.productos === "1" ? (await conexion.execute(
-      `SELECT A.ID_PROVEEDOR, P.ID_PRODUCTO, P.NOMBRE_PRODUCTO FROM (${ULTIMO_PROVEEDOR_PRODUCTO}) A
-       JOIN PRODUCTO P ON P.ID_PRODUCTO = A.ID_PRODUCTO ORDER BY P.NOMBRE_PRODUCTO, P.ID_PRODUCTO`,
-      [], { outFormat: oracledb.OUT_FORMAT_OBJECT }
-    )).rows : undefined;
+    const actorId = req.session.usuario.id;
+    const proveedores = await consultarProcedimiento(conexion, "SAB_L_PROVEEDOR", { actorId });
+    const vinculados = req.query.productos === "1"
+      ? await consultarProcedimiento(conexion, "SAB_API_PROVEEDOR_PRODUCTOS", { actorId }) : undefined;
     res.json({
       estado: "OK",
       total: proveedores.length,
@@ -327,7 +236,6 @@ router.get("/proveedores", async (req, res) => {
     });
 
   } finally {
-    if (cursor) await cursor.close();
     if (conexion) await conexion.close();
   }
 });
@@ -369,26 +277,14 @@ router.put("/proveedores/:id", async (req, res) => {
   try {
     conexion = await obtenerConexion();
 
-    await conexion.execute(
-      `BEGIN
-         SAB_U_PROVEEDOR(
-           :actorId,
-           :id,
-           :rut,
-           :razonSocial,
-           :telefono,
-           :email
-         );
-       END;`,
-      {
-        actorId: req.session.usuario.id,
-        id,
-        rut: rut.trim(),
-        razonSocial: razonSocial.trim(),
-        telefono: telefono?.trim() || null,
-        email: email?.trim() || null
-      }
-    );
+    await ejecutarProcedimiento(conexion, "SAB_U_PROVEEDOR", {
+      actorId: req.session.usuario.id,
+      id,
+      rut: rut.trim(),
+      razonSocial: razonSocial.trim(),
+      telefono: telefono?.trim() || null,
+      email: email?.trim() || null
+    });
 
     res.json({
       estado: "OK",

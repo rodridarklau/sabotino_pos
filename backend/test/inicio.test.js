@@ -1,4 +1,5 @@
-﻿const assert = require("node:assert/strict");
+const assert = require("node:assert/strict");
+const { cursor, nombreProcedimiento, sinCursor } = require("./oracle-mock");
 const { after, before, test } = require("node:test");
 const express = require("express");
 const db = require("../src/config/database");
@@ -14,16 +15,16 @@ before(async () => {
   const original = db.obtenerConexion;
   db.obtenerConexion = async () => ({
     async execute(sql, binds) {
-      assert.match(sql, /^SELECT /);
-      consultas.push({ sql, binds });
-      if (sql.includes("FROM USUARIO U")) return { rows: [{ NOMBRE_ROL: rolOracle }] };
-      if (sql.includes("FROM VENTA V")) {
+      const nombre = nombreProcedimiento(sql);
+      consultas.push({ sql, binds: sinCursor(binds) });
+      if (nombre === "SAB_API_ROL_ACTIVO") return cursor([{ NOMBRE_ROL: rolOracle }]);
+      if (nombre === "SAB_API_INICIO_VENTAS") {
         if (fallaVentas) throw new Error("Lectura simulada no disponible");
-        return { rows: [{ CANTIDAD: 1, TOTAL: 655.25 }] };
+        return cursor([{ CANTIDAD: 1, TOTAL: 655.25 }]);
       }
-      if (sql.includes("FROM TURNO_CAJA")) return { rows: [] };
-      if (sql.includes("FROM PRODUCTO P")) return { rows: [{ ID_PRODUCTO: 4 }] };
-      if (sql.includes("FROM INSUMO I")) return { rows: [{ ID_INSUMO: 3 }] };
+      if (nombre === "SAB_API_INICIO_TURNOS") return cursor([]);
+      if (nombre === "SAB_API_ALERTAS_PRODUCTOS") return cursor([{ ID_PRODUCTO: 4 }]);
+      if (nombre === "SAB_API_ALERTAS_INSUMOS") return cursor([{ ID_INSUMO: 3 }]);
       assert.fail("Consulta inesperada");
     },
     async close() {}
@@ -56,12 +57,11 @@ test("dueño: totales confirmados sin pagos, día de Santiago y alertas reales",
   assert.equal(datos.hoy, partes.filter(({ type }) => type !== "literal").map(({ value }) => value).join("-"));
   assert.deepEqual(datos.ventas, { CANTIDAD: 1, TOTAL: 655.25 });
   assert.deepEqual(datos.alertas, [{ ID_PRODUCTO: 4 }]);
-  assert.match(consultas[1].sql, /ESTADO_VENTA = 'CONFIRMADA'/);
-  assert.match(consultas[1].sql, /INTERVAL '1' DAY/);
-  assert.doesNotMatch(consultas[1].sql, /PAGO_VENTA/);
-  assert.match(consultas[3].sql, /P\.STOCK_ACTUAL <= P\.STOCK_CRITICO/);
+  assert.equal(nombreProcedimiento(consultas[1].sql), "SAB_API_INICIO_VENTAS");
+  assert.equal(consultas[1].binds.hoy, datos.hoy);
+  assert.equal(nombreProcedimiento(consultas[3].sql), "SAB_API_ALERTAS_PRODUCTOS");
   assert.deepEqual(datos.alertasInsumos, [{ ID_INSUMO: 3 }]);
-  assert.match(consultas[4].sql, /I\.ESTADO_ACTIVO = 'S' AND I\.STOCK_ACTUAL <= I\.STOCK_CRITICO/);
+  assert.equal(nombreProcedimiento(consultas[4].sql), "SAB_API_ALERTAS_INSUMOS");
 });
 
 test("vendedor: ventas propias y estado de MAIN, sin lectura administrativa", async () => {
@@ -70,11 +70,10 @@ test("vendedor: ventas propias y estado de MAIN, sin lectura administrativa", as
   assert.equal(respuesta.status, 200);
   assert.equal(Object.hasOwn(await respuesta.json(), "alertas"), false);
   assert.equal(consultas.length, 3);
-  assert.deepEqual(consultas[2].binds, { nombre: "MAIN" });
+  assert.deepEqual(consultas[2].binds, { actorId: 27, nombre: "MAIN" });
   assert.equal(consultas[1].binds.dueno, 0);
   assert.equal(consultas[1].binds.actorId, 27);
-  assert.match(consultas[1].sql, /V\.ID_USUARIO = :actorId/);
-  assert.match(consultas[2].sql, /C\.NOMBRE_CAJA = :nombre/);
+  assert.equal(nombreProcedimiento(consultas[2].sql), "SAB_API_INICIO_TURNOS");
 });
 
 test("una lectura fallida conserva las demás; un vacío válido queda diferenciado", async () => {

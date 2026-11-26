@@ -1,6 +1,7 @@
 const express = require("express");
 const rateLimit = require("express-rate-limit");
-const { autorizar, fallo, filas, idValido } = require("../services/caja-ventas");
+const { consultarProcedimiento } = require("../config/procedimientos");
+const { autorizar, fallo, idValido } = require("../services/caja-ventas");
 const { almacen, optimizarFoto, maxBytes, imagenes, fotoValida, presentar } = require("../services/imagenes-productos");
 
 function crearRouter(archivo = almacen) {
@@ -16,11 +17,11 @@ function crearRouter(archivo = almacen) {
     next();
   }
   function editar(req, res, operacion) {
-    return autorizar(req, res, async (conexion, { dueno }) => {
+    return autorizar(req, res, async (conexion, { actorId, dueno }) => {
       if (!dueno) return fallo(res, 403, "Solo el dueño administra imágenes");
       const id = Number(req.params.id);
       if (!idValido(id)) return fallo(res, 400, "Producto inválido");
-      const [producto] = await filas(conexion, "SELECT ID_PRODUCTO FROM PRODUCTO WHERE ID_PRODUCTO = :id", { id });
+      const [producto] = await consultarProcedimiento(conexion, "SAB_API_IMAGEN_PRODUCTO", { actorId, id });
       if (!producto) return fallo(res, 404, "Producto no encontrado");
       await operacion(id);
     }, true);

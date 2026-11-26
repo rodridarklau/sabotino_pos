@@ -1,4 +1,5 @@
 const assert = require("node:assert/strict");
+const { cursor, nombreProcedimiento, sinCursor } = require("./oracle-mock");
 const { after, before, beforeEach, test } = require("node:test");
 const express = require("express");
 const oracledb = require("oracledb");
@@ -13,9 +14,9 @@ before(async () => {
   const original = db.obtenerConexion;
   db.obtenerConexion = async () => ({
     async execute(sql, binds) {
-      llamadas.push({ sql, binds });
-      const nombre = /^BEGIN (SAB_[A-Z_]+)\(/.exec(sql)?.[1];
-      if (nombre) {
+      llamadas.push({ sql, binds: sinCursor(binds) });
+      const nombre = nombreProcedimiento(sql);
+      if (/^SAB_(?:C_CAJA|ABRIR_CAJA|CERRAR_CAJA)/.test(nombre)) {
         if (nombre === "SAB_C_CAJA_TERMINAL") {
           escenario.caja = { ID_CAJA: 17, NOMBRE_CAJA: "MAIN", ESTADO_OPERATIVO: "S" };
           if (escenario.duplicado) throw { errorNum: 1 };
@@ -26,24 +27,24 @@ before(async () => {
         const valor = { SAB_ABRIR_CAJA: 8, SAB_CERRAR_CAJA: -2.25, SAB_C_CAJA_TERMINAL: 3 }[nombre];
         return { outBinds: { resultado: valor } };
       }
-      if (sql.startsWith("SELECT R.NOMBRE_ROL")) return { rows: [{ NOMBRE_ROL: escenario.rol }] };
-      if (sql.includes("FROM CAJA_TERMINAL WHERE NOMBRE_CAJA")) {
+      if (nombre === "SAB_API_ROL_ACTIVO") return cursor([{ NOMBRE_ROL: escenario.rol }]);
+      if (nombre === "SAB_API_CAJA_POR_NOMBRE") {
         assert.equal(binds.nombre, "MAIN");
-        return { rows: escenario.caja ? [escenario.caja] : [] };
+        return cursor(escenario.caja ? [escenario.caja] : []);
       }
-      if (sql.includes("FROM TURNO_CAJA T JOIN")) {
+      if (/^SAB_API_CAJA_(?:ABIERTOS|HISTORIAL|TURNO)$/.test(nombre)) {
         const turnos = [{ ID_TURNO_CAJA: 8, ESTADO_TURNO: "ABIERTO" },
           { ID_TURNO_CAJA: 9, ESTADO_TURNO: "CERRADO", CIERRE_REAL_EFECTIVO: 10 }];
-        return { rows: turnos.filter((turno) => {
+        return cursor(turnos.filter((turno) => {
           if (binds.turnoId) return turno.ID_TURNO_CAJA === binds.turnoId;
-          return turno.ESTADO_TURNO === (sql.includes("AND T.ESTADO_TURNO = 'CERRADO'") ? "CERRADO" : "ABIERTO");
-        }) };
+          return turno.ESTADO_TURNO === (nombre === "SAB_API_CAJA_HISTORIAL" ? "CERRADO" : "ABIERTO");
+        }));
       }
-      if (sql.includes("FROM METODO_PAGO")) return { rows: [{ NOMBRE_METODO: "EFECTIVO", TOTAL: 12.5 }] };
-      if (sql.includes("COUNT(*) AS BORRADORES")) return { rows: [{ BORRADORES: 1 }] };
-      if (sql.includes("COUNT(*) AS CANTIDAD")) return { rows: [{ CANTIDAD: 1, TOTAL: 12.5 }] };
-      if (sql.includes("FROM VENTA V")) return { rows: [{ ID_VENTA: 10, TOTAL_VENTA: 12.5 }] };
-      if (sql.includes("FROM LOG_AUDITORIA_CAJA")) return { rows: [{ ID_LOG_CAJA: 1, TIPO_OPERACION: "APERTURA" }] };
+      if (nombre === "SAB_API_CAJA_TURNO_PAGOS") return cursor([{ NOMBRE_METODO: "EFECTIVO", TOTAL: 12.5 }]);
+      if (nombre === "SAB_API_CAJA_TURNO_BORRADORES") return cursor([{ BORRADORES: 1 }]);
+      if (/^SAB_API_CAJA_(?:RESUMEN_DIA|TURNO_RESUMEN)$/.test(nombre)) return cursor([{ CANTIDAD: 1, TOTAL: 12.5 }]);
+      if (nombre === "SAB_API_CAJA_TURNO_VENTAS") return cursor([{ ID_VENTA: 10, TOTAL_VENTA: 12.5 }]);
+      if (nombre === "SAB_API_CAJA_TURNO_EVENTOS") return cursor([{ ID_LOG_CAJA: 1, TIPO_OPERACION: "APERTURA" }]);
       assert.fail(`SQL inesperado: ${sql}`);
     },
     async close() {}
@@ -71,7 +72,7 @@ beforeEach(() => {
 });
 
 const salida = { dir: oracledb.BIND_OUT, type: oracledb.NUMBER };
-const escrituras = () => llamadas.filter(({ sql }) => sql.startsWith("BEGIN"));
+const escrituras = () => llamadas.filter(({ sql }) => /^SAB_(?:C_CAJA|ABRIR_CAJA|CERRAR_CAJA)/.test(nombreProcedimiento(sql)));
 const leer = (ruta) => fetch(url + ruta);
 const enviar = (ruta, datos, method = "POST") => fetch(url + ruta, {
   method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(datos)
@@ -89,10 +90,10 @@ test("consulta terminales, activos, historial, pagos y ventas con alcance por ro
   assert.deepEqual(llamadas.at(-1).binds, { actorId: 7, dueno: 0, cajaId: 1, desplazamiento: 25 });
   const detalle = await (await leer("/caja/turnos/8")).json();
   assert.deepEqual([detalle.pagos.length, detalle.ventas.length, detalle.auditoria.length, detalle.borradores], [1, 1, 1, 1]);
-  const consultaPagos = llamadas.find(({ sql }) => sql.includes("FROM METODO_PAGO"));
-  assert.match(consultaPagos.sql, /ESTADO_VENTA = 'CONFIRMADA'/);
-  const consultaVentas = llamadas.find(({ sql }) => sql.startsWith("SELECT V.ID_VENTA"));
-  assert.match(consultaVentas.sql, /V.ID_USUARIO = :actorId/);
+  const consultaPagos = llamadas.find(({ sql }) => nombreProcedimiento(sql) === "SAB_API_CAJA_TURNO_PAGOS");
+  assert.deepEqual(consultaPagos.binds, { actorId: 7, turnoId: 8 });
+  const consultaVentas = llamadas.find(({ sql }) => nombreProcedimiento(sql) === "SAB_API_CAJA_TURNO_VENTAS");
+  assert.equal(consultaVentas.binds.actorId, 7);
   assert.equal(consultaVentas.binds.dueno, 0);
   assert.equal((await leer("/caja/turnos/99")).status, 404);
   assert.equal(escrituras().length, 0);

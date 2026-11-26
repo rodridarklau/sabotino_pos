@@ -4,7 +4,45 @@ Oracle es la fuente de verdad para la estructura y las reglas de negocio. El inv
 
 ## Contexto y alcance
 
-La conexión de Express usa la cuenta propietaria `SABOTINO` en `XEPDB1`, con Oracle 21c versión `21.3.0.0.0`. El esquema tiene 21 tablas, 33 índices, 21 secuencias, 75 procedimientos, 2 funciones y 8 triggers. Todos esos objetos figuran como `VALID`. El inventario del propietario no contiene vistas, paquetes ni sinónimos propios. También se puede repetir la extracción desde SQL Developer con [inventario.sql](inventario.sql).
+La conexión local de Express usa la cuenta propietaria `SABOTINO` en `XEPDB1`, con Oracle 21c versión `21.3.0.0.0`. Antes de la migración de acceso a datos, el esquema tenía 21 tablas, 33 índices, 21 secuencias, 75 procedimientos, 2 funciones y 8 triggers. También se puede repetir la extracción desde SQL Developer con [inventario.sql](inventario.sql).
+
+## Migración a procedimientos almacenados
+
+El backend envía todas las operaciones de datos por [la capa de procedimientos](../../backend/src/config/procedimientos.js). La capa toma la conexión de la operación, enlaza los valores, lee las salidas escalares y consume y cierra los cursores antes de que las rutas devuelvan la conexión al pool. Las contraseñas se siguen verificando con Argon2id en Node.js.
+
+Si el esquema ya tiene la base de SABOTINO, ejecutá [el instalador de migración](migracion-procedimientos/instalar.sql) como propietario. El [verificador](migracion-procedimientos/verificar.sql) comprueba por nombre los 79 procedimientos esperados, informa los ausentes o inválidos y detiene la ejecución con un error si falta alguno en estado `VALID`.
+
+Para una base nueva, ejecutá [instalar_desde_cero.sql](instalar_desde_cero.sql) desde la carpeta `docs/oracle` y conectado al esquema vacío. El instalador usa los [módulos base](base/), verifica las 21 tablas, 21 secuencias, 75 procedimientos, dos funciones y ocho triggers iniciales, y luego instala los 79 procedimientos de la API. Los catálogos fijos se cargan antes de habilitar sus triggers. El dueño registra la primera cuenta desde el frontend y crea `MAIN` en la primera apertura. Los scripts provienen de los módulos SQL de SABOTINO y excluyen el registro heredado `CAJA PRINCIPAL` del catálogo inicial. El procedimiento de creación desde cero rechaza esquemas con objetos existentes. Revisá la [guía de inicio](../../README.md) para preparar la cuenta y configurar la conexión.
+
+| Etapa | Rutinas reutilizadas y adaptación |
+| --- | --- |
+| [Acceso](migracion-procedimientos/01_acceso.sql) | Se reutiliza `SAB_REGISTRAR_DUENO_INICIAL`. La API de credenciales compara el nombre de usuario sin distinguir mayúsculas, filtra cuentas y roles activos y devuelve nombre y versión de cuenta junto con los datos de autenticación. Se agregan lecturas para estado inicial, rol activo y validación de sesión. |
+| [Caja](migracion-procedimientos/02_caja.sql) | La búsqueda y el resumen de MAIN requieren un actor activo. Pagos, totales, borradores y auditoría de cada turno verifican su visibilidad dentro de Oracle. Un vendedor conserva acceso a turnos abiertos y a los cerrados que abrió o cerró, y el listado de ventas del turno muestra solo las propias. |
+| [Ventas](migracion-procedimientos/03_ventas.sql) | Se reutilizan `SAB_UI_L_METODOS_PAGO` y los gestores de venta. Oracle comprueba que las líneas y los pagos correspondan a una venta visible por el actor. En modo comprobante se exige una venta confirmada. La anulación pública conserva la comprobación de propiedad antes de ejecutar `SAB_VENTA_CANCELAR`. |
+| [Productos y diagnóstico](migracion-procedimientos/04_productos_y_diagnostico.sql) | Se conservan `SAB_C_PRODUCTO`, `SAB_U_PRODUCTO` y `SAB_D_PRODUCTO`. La edición y la baja comprueban el estado de la fila bloqueada y ejecutan el gestor en la misma conexión. Los catálogos nuevos conservan el orden y el acceso de vendedor. Las dos consultas de diagnóstico se trasladan a Oracle. |
+| [Compras y stock](migracion-procedimientos/05_compras_y_stock.sql) | Se conservan los gestores de proveedores, `SAB_L_PROVEEDOR` y `SAB_COMPRA_MULTIPLE`. Se agregan lecturas para catálogos, historial y asociaciones, y se comparten los catálogos de existencias con Inventario. |
+| [Inventario](migracion-procedimientos/06_inventario.sql) | Se reutilizan `SAB_F_ES_DUENO` dentro de un procedimiento, `SAB_L_TIPO_AJUSTE_STOCK`, `SAB_C_INSUMO` y los gestores de ajuste. El alta usa las comprobaciones de referencia y unidad de Oracle. Se agregan las lecturas de artículo e historial. |
+| [Vendedores](migracion-procedimientos/07_vendedores.sql) | Se conservan los gestores de usuario y horario. Las lecturas nuevas aplican el alcance del rol vendedor y conservan la comprobación de nombre duplicado. |
+| [Inicio e imágenes](migracion-procedimientos/08_inicio_e_imagenes.sql) | Se reutilizan las alertas de Productos. Se agregan las lecturas del resumen diario, turno de MAIN, alertas de insumos y existencia del producto antes de editar su imagen. |
+| [Reportes](migracion-procedimientos/09_reportes.sql) | Se conservan los cálculos específicos de la interfaz, los filtros, los períodos comparados y el límite de filas. Las nueve secciones y los siete catálogos llaman a procedimientos. CSV y PDF siguen usando los mismos contratos JSON. |
+
+Ejecuta los comandos desde `backend`.
+
+~~~sh
+npm run oracle:auditar
+npm test
+node test/reportes-oracle.readonly.js
+node test-oracle.js
+~~~
+
+- `oracle:auditar` revisa `server.js` y `src/`. Toda ejecución del driver tiene que pasar por el bloque de llamada a procedimientos. La comprobación también detecta accesos directos al driver desde las rutas.
+- `npm test` ejecuta las pruebas con mocks de Oracle. Las pruebas de cursores verifican la lectura por lotes, el cierre ante fallos y el rechazo de nombres que no representan una llamada de procedimiento.
+- `reportes-oracle.readonly.js` comprueba las consultas de Reportes en Oracle con filas simuladas. `test-oracle.js` llama al procedimiento de diagnóstico en el esquema configurado.
+- `test/flujo-oracle.js` ejecuta los recorridos HTTP contra un esquema aislado. Usa `SABOTINO_QA_USER`, `SABOTINO_QA_PASSWORD` y `SABOTINO_QA_CONNECT`. El esquema debe tener su estructura, procedimientos y triggers instalados, con los roles fijos y los métodos de pago IDs 1, 2 y 3 precargados antes de habilitar sus triggers. La prueba exige un usuario `SAB_QA_*` sin usuarios de aplicación y genera sus propios datos de trabajo. El envío por Resend y la escritura de fotos se comprueban con mocks o almacenamiento temporal, respectivamente.
+
+La revisión final verificó la instalación desde un esquema vacío en Oracle XE 21c y la actualización incremental con SQL*Plus. Se probó que el verificador rechaza procedimientos ausentes e inválidos. Pasaron las 53 pruebas con mocks, las consultas de Reportes con datos simulados en Oracle y el flujo HTTP con un dueño y dos vendedores en el esquema creado desde cero. Las llamadas directas a los procedimientos comprobaron el alcance de pagos y detalles de venta, incluidos los borradores, y la visibilidad de los arqueos antes y después de cerrar un turno.
+
+La revisión de cursores documenta las conversiones de edición y baja de productos, las diferencias de los 15 candidatos y las verificaciones de compilación y concurrencia. [Auditoría de cursores](AUDITORIA_CURSORES.md), [inventario de los 154 procedimientos](inventario_procedimientos.csv)
 
 | Flujo | Objetos referenciados en el backend |
 | --- | --- |
@@ -133,7 +171,7 @@ El módulo usa únicamente consultas `SELECT` con parámetros enlazados. React m
 
 ### Objetos revisados y cálculo
 
-Se contrastaron columnas, tipos, PK, FK, restricciones, dependencias, triggers y secuencias de ventas, detalle, pagos, métodos, productos, categorías, marcas, unidades, abastecimientos, proveedores, insumos, ajustes, turnos, terminales, auditorías y usuarios. `SAB_R_HORAS_VENTA`, `SAB_R_TOP_PRODUCTOS` y `SAB_R_DESCUADRES_CAJA` validan al dueño. Sus definiciones se usaron como referencia junto con `SAB_VENTA_CONFIRMAR`, `SAB_VENTA_CANCELAR`, `SAB_COMPRA_MULTIPLE`, los abastecimientos y `SAB_CERRAR_CAJA`. Los reportes ejecutan las consultas filtrables de [reportes.js](../../backend/src/services/reportes.js), sin ejecutar rutinas Oracle.
+Se contrastaron columnas, tipos, PK, FK, restricciones, dependencias, triggers y secuencias de ventas, detalle, pagos, métodos, productos, categorías, marcas, unidades, abastecimientos, proveedores, insumos, ajustes, turnos, terminales, auditorías y usuarios. `SAB_R_HORAS_VENTA`, `SAB_R_TOP_PRODUCTOS` y `SAB_R_DESCUADRES_CAJA` validan al dueño. Sus definiciones se usaron como referencia junto con `SAB_VENTA_CONFIRMAR`, `SAB_VENTA_CANCELAR`, `SAB_COMPRA_MULTIPLE`, los abastecimientos y `SAB_CERRAR_CAJA`. [reportes.js](../../backend/src/services/reportes.js) enlaza los filtros y consume los resultados de [los procedimientos de Reportes](migracion-procedimientos/09_reportes.sql).
 
 | Área | Fórmula y alcance |
 | --- | --- |

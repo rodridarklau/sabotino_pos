@@ -1,6 +1,7 @@
 const express = require("express");
+const { consultarProcedimiento } = require("../config/procedimientos");
 const rateLimit = require("express-rate-limit");
-const { autorizar, centavos, fallo, filas, idValido, maximo, nombreCajaPrincipal, procedimiento, salida, unidades } = require("../services/caja-ventas");
+const { autorizar, centavos, fallo, idValido, maximo, nombreCajaPrincipal, procedimiento, salida, unidades } = require("../services/caja-ventas");
 const { abrirTurno } = require("./caja.routes");
 const { generarPdf, nombrePdf, correoComprobante } = require("../services/comprobante");
 const correo = require("../services/correo");
@@ -8,21 +9,6 @@ const { almacen, presentar } = require("../services/imagenes-productos");
 
 const router = express.Router();
 const estados = ["BORRADOR", "CONFIRMADA", "ANULADA"];
-const productosSql = `SELECT P.ID_PRODUCTO, P.NOMBRE_PRODUCTO, P.CODIGO_BARRA,
-    P.PRECIO_VENTA_ACTUAL, P.STOCK_ACTUAL, P.STOCK_CRITICO, P.ID_CATEGORIA,
-    C.NOMBRE_CATEGORIA, U.CODIGO_UNIDAD, U.PERMITE_DECIMALES
-  FROM PRODUCTO P JOIN UNIDAD_MEDIDA U ON U.ID_UNIDAD = P.ID_UNIDAD
-  JOIN CATEGORIA_PRODUCTO C ON C.ID_CATEGORIA = P.ID_CATEGORIA
-  WHERE P.ESTADO_PRODUCTO = 'S'`;
-const metodosSql = "SELECT ID_METODO_PAGO, NOMBRE_METODO, REQUIERE_COMPROBANTE FROM METODO_PAGO";
-const ventasSql = `SELECT V.ID_VENTA, V.ID_USUARIO, U.NOMBRE_COMPLETO AS RESPONSABLE,
-    TO_CHAR(V.FECHA_HORA_VENTA, 'DD/MM/YYYY HH24:MI:SS') AS FECHA,
-    V.ID_TURNO_CAJA, V.ESTADO_VENTA, V.TOTAL_VENTA, C.NOMBRE_CAJA
-  FROM VENTA V JOIN USUARIO U ON U.ID_USUARIO = V.ID_USUARIO
-  JOIN TURNO_CAJA T ON T.ID_TURNO_CAJA = V.ID_TURNO_CAJA
-  JOIN CAJA_TERMINAL C ON C.ID_CAJA = T.ID_CAJA
-  WHERE (:dueno = 1 OR V.ID_USUARIO = :actorId)`;
-
 const errores = new Map([
   [60, [409, "Conflicto con otra operación"]],
   [1438, [422, "Un importe excede la precisión de Oracle"]],
@@ -69,22 +55,14 @@ router.use((req, res, next) => {
 });
 
 router.get("/catalogos", (req, res) => autorizar(req, res, async (c, actor) => {
-  const turnos = await filas(c, `SELECT T.ID_TURNO_CAJA, C.NOMBRE_CAJA
-    FROM TURNO_CAJA T JOIN CAJA_TERMINAL C ON C.ID_CAJA = T.ID_CAJA
-    WHERE T.ESTADO_TURNO = 'ABIERTO' AND C.NOMBRE_CAJA = :nombre
-    AND C.ESTADO_OPERATIVO = 'S' ORDER BY T.ID_TURNO_CAJA`, { nombre: nombreCajaPrincipal });
+  const turnos = await consultarProcedimiento(c, "SAB_API_VENTA_TURNOS", { actorId: actor.actorId, nombre: nombreCajaPrincipal });
   if (!turnos.length) return res.json({ productos: [], metodos: [], turnos });
-  const productos = await filas(c, `SELECT P.*, (
-    SELECT COUNT(DISTINCT V.ID_VENTA) FROM DETALLE_VENTA D JOIN VENTA V ON V.ID_VENTA = D.ID_VENTA
-    WHERE D.ID_PRODUCTO = P.ID_PRODUCTO AND V.ESTADO_VENTA = 'CONFIRMADA'
-      AND V.FECHA_HORA_VENTA >= CAST(SYSTIMESTAMP AS TIMESTAMP) - INTERVAL '30' DAY
-      AND (:dueno = 1 OR V.ID_USUARIO = :actorId)
-  ) AS VENTAS_RECIENTES FROM (${productosSql}) P ORDER BY P.NOMBRE_PRODUCTO, P.ID_PRODUCTO`, actor);
+  const productos = await consultarProcedimiento(c, "SAB_API_VENTA_CATALOGO", actor);
   const asociaciones = await almacen.leer().catch((error) => {
     console.error("No se pudieron cargar las imágenes del catálogo:", error.code);
     return {};
   });
-  const metodos = await filas(c, `${metodosSql} ORDER BY NOMBRE_METODO`);
+  const metodos = await consultarProcedimiento(c, "SAB_UI_L_METODOS_PAGO", { actorId: actor.actorId });
   res.json({ productos: productos.map((p) => ({ ...p, VISUAL: presentar(asociaciones[p.ID_PRODUCTO]) })), metodos, turnos });
 }));
 
@@ -95,28 +73,18 @@ router.get("/", (req, res) => autorizar(req, res, async (c, actor) => {
   if (!idValido(pagina) || pagina > 1000000 || (estado && !estados.includes(estado)) || buscar.length > 100) {
     return fallo(res, 400, "Filtros de historial inválidos");
   }
-  const ventas = await filas(c, `${ventasSql}
-    AND (:estado IS NULL OR V.ESTADO_VENTA = :estado)
-    AND (:buscar IS NULL OR INSTR(LOWER(U.NOMBRE_COMPLETO), LOWER(:buscar)) > 0
-         OR TO_CHAR(V.ID_VENTA) = :buscar)
-    ORDER BY V.FECHA_HORA_VENTA DESC, V.ID_VENTA DESC
-    OFFSET :desplazamiento ROWS FETCH NEXT 26 ROWS ONLY`, {
+  const ventas = await consultarProcedimiento(c, "SAB_API_VENTA_HISTORIAL", {
     ...actor, estado, buscar: buscar || null, desplazamiento: (pagina - 1) * 25
   });
   res.json({ ventas: ventas.slice(0, 25), hayMas: ventas.length > 25 });
 }));
 
 async function detalleVenta(c, actor, ventaId, comprobante = false) {
-  const [venta] = await filas(c, `${ventasSql} AND V.ID_VENTA = :ventaId${comprobante ? " AND V.ESTADO_VENTA = 'CONFIRMADA'" : ""}`, { ...actor, ventaId });
+  const [venta] = await consultarProcedimiento(c, "SAB_API_VENTA_CABECERA", { ...actor, ventaId, comprobante: Number(comprobante) });
   if (!venta) return null;
-  const detalles = await filas(c, `SELECT D.ID_DETALLE_VENTA, P.NOMBRE_PRODUCTO, U.CODIGO_UNIDAD,
-      D.CANTIDAD, D.PRECIO_UNITARIO_HISTORICO, D.SUBTOTAL_LINEA
-    FROM DETALLE_VENTA D JOIN PRODUCTO P ON P.ID_PRODUCTO = D.ID_PRODUCTO
-    JOIN UNIDAD_MEDIDA U ON U.ID_UNIDAD = P.ID_UNIDAD
-    WHERE D.ID_VENTA = :ventaId ORDER BY D.ID_DETALLE_VENTA`, { ventaId });
-  const pagos = await filas(c, `SELECT P.ID_PAGO_VENTA, M.NOMBRE_METODO, P.MONTO_PAGADO, P.CODIGO_COMPROBANTE
-    FROM PAGO_VENTA P JOIN METODO_PAGO M ON M.ID_METODO_PAGO = P.ID_METODO_PAGO
-    WHERE P.ID_VENTA = :ventaId ORDER BY P.ID_PAGO_VENTA`, { ventaId });
+  const alcanceVenta = { actorId: actor.actorId, ventaId, comprobante: Number(comprobante) };
+  const detalles = await consultarProcedimiento(c, "SAB_API_VENTA_DETALLE", alcanceVenta);
+  const pagos = await consultarProcedimiento(c, "SAB_API_VENTA_PAGOS", alcanceVenta);
   return { venta, detalles, pagos };
 }
 
@@ -198,7 +166,7 @@ function incierto(res, ventaId) {
 
 router.post("/turnos", abrirTurno);
 
-async function validarVenta(c, { turnoId, lineas, pagos, totalEsperado }) {
+async function validarVenta(c, actorId, { turnoId, lineas, pagos, totalEsperado }) {
   if (!idValido(turnoId) || !Array.isArray(lineas) || !lineas.length || lineas.length > 100 ||
       !Array.isArray(pagos) || pagos.length > 100 || !Number.isFinite(centavos(totalEsperado)) ||
       lineas.some((l) => !idValido(l?.productoId) || !(milesimas(l.cantidad) > 0)) ||
@@ -209,15 +177,12 @@ async function validarVenta(c, { turnoId, lineas, pagos, totalEsperado }) {
   if (new Set(lineas.map((l) => l.productoId)).size !== lineas.length) {
     return [400, "Usa una única línea por producto"];
   }
-  const [turno] = await filas(c, `SELECT T.ID_TURNO_CAJA FROM TURNO_CAJA T
-    JOIN CAJA_TERMINAL C ON C.ID_CAJA = T.ID_CAJA
-    WHERE T.ID_TURNO_CAJA = :turnoId AND T.ESTADO_TURNO = 'ABIERTO'
-      AND C.NOMBRE_CAJA = :nombre AND C.ESTADO_OPERATIVO = 'S'`, { turnoId, nombre: nombreCajaPrincipal });
+  const [turno] = await consultarProcedimiento(c, "SAB_API_VENTA_TURNO_VALIDO", { actorId, turnoId, nombre: nombreCajaPrincipal });
   if (!turno) return [409, "Abre un turno en la Caja Principal para vender"];
-  const ids = Object.fromEntries(lineas.map(({ productoId }, i) => [`p${i}`, productoId]));
-  const productos = await filas(c, `${productosSql} AND P.ID_PRODUCTO IN (${Object.keys(ids).map((id) => `:${id}`).join(", ")})`, ids);
+  const ids = JSON.stringify(lineas.map(({ productoId }) => productoId));
+  const productos = await consultarProcedimiento(c, "SAB_API_VENTA_PRODUCTOS", { actorId, ids });
   const porId = new Map(productos.map((p) => [p.ID_PRODUCTO, p]));
-  const metodos = await filas(c, metodosSql);
+  const metodos = await consultarProcedimiento(c, "SAB_UI_L_METODOS_PAGO", { actorId });
   let total = 0n;
   for (const linea of lineas) {
     const producto = porId.get(linea.productoId);
@@ -241,7 +206,7 @@ async function validarVenta(c, { turnoId, lineas, pagos, totalEsperado }) {
 
 router.post("/", (req, res) => autorizar(req, res, async (c, { actorId }) => {
   const venta = req.body ?? {};
-  const invalida = await validarVenta(c, venta);
+  const invalida = await validarVenta(c, actorId, venta);
   if (invalida) return fallo(res, ...invalida);
   let ventaId;
   try {
@@ -273,7 +238,7 @@ router.post("/", (req, res) => autorizar(req, res, async (c, { actorId }) => {
 router.post("/:id/anulacion", (req, res) => autorizar(req, res, async (c, { actorId }) => {
   const ventaId = Number(req.params.id);
   if (!idValido(ventaId)) return fallo(res, 400, "Identificador inválido");
-  const [propia] = await filas(c, "SELECT ID_VENTA FROM VENTA WHERE ID_VENTA = :ventaId AND ID_USUARIO = :actorId", { actorId, ventaId });
+  const [propia] = await consultarProcedimiento(c, "SAB_API_VENTA_PROPIA", { actorId, ventaId });
   if (!propia) return fallo(res, 404, "Borrador propio no encontrado");
   try {
     await procedimiento(c, "SAB_VENTA_CANCELAR", { actorId, ventaId });

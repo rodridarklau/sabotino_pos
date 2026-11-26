@@ -1,20 +1,8 @@
 const express = require("express");
-const { autorizar, buscarCajaPrincipal, centavos, fallo, filas, idValido, nombreCajaPrincipal, procedimiento, salida } = require("../services/caja-ventas");
+const { consultarProcedimiento } = require("../config/procedimientos");
+const { autorizar, buscarCajaPrincipal, centavos, fallo, idValido, nombreCajaPrincipal, procedimiento, salida } = require("../services/caja-ventas");
 
 const router = express.Router();
-const turnosSql = `SELECT T.ID_TURNO_CAJA, T.ID_CAJA, C.NOMBRE_CAJA, T.ESTADO_TURNO,
-    TO_CHAR(T.FECHA_HORA_APERTURA, 'DD/MM/YYYY HH24:MI:SS') AS APERTURA,
-    TO_CHAR(T.FECHA_HORA_CIERRE, 'DD/MM/YYYY HH24:MI:SS') AS CIERRE,
-    A.NOMBRE_COMPLETO AS RESPONSABLE_APERTURA, B.NOMBRE_COMPLETO AS RESPONSABLE_CIERRE,
-    T.INICIAL_EFECTIVO, T.INICIAL_TARJETA, T.INICIAL_TRANSFERENCIA,
-    T.CIERRE_SISTEMA_EFECTIVO, T.CIERRE_SISTEMA_TARJETA, T.CIERRE_SISTEMA_TRANSFERENCIA,
-    T.CIERRE_REAL_EFECTIVO, T.CIERRE_REAL_TARJETA, T.CIERRE_REAL_TRANSFERENCIA
-  FROM TURNO_CAJA T JOIN CAJA_TERMINAL C ON C.ID_CAJA = T.ID_CAJA
-  JOIN USUARIO A ON A.ID_USUARIO = T.ID_USUARIO_APERTURA
-  LEFT JOIN USUARIO B ON B.ID_USUARIO = T.ID_USUARIO_CIERRE
-  WHERE (:dueno = 1 OR T.ESTADO_TURNO = 'ABIERTO'
-    OR :actorId IN (T.ID_USUARIO_APERTURA, T.ID_USUARIO_CIERRE))`;
-
 const errores = new Map([
   [1, [409, "Ya existe una caja con ese nombre"]],
   [60, [409, "Conflicto con otra operación. Actualiza Caja"]],
@@ -56,7 +44,7 @@ function abrirTurno(req, res) {
     if (!Number.isFinite(centavos(efectivoInicial)) || (cajaId !== undefined && !idValido(cajaId))) {
       return fallo(res, 400, "Ingresa un importe inicial válido");
     }
-    let caja = await buscarCajaPrincipal(c);
+    let caja = await buscarCajaPrincipal(c, actorId);
     if (cajaId !== undefined && cajaId !== caja?.ID_CAJA) {
       return fallo(res, 409, "Solo se puede abrir la Caja Principal");
     }
@@ -68,13 +56,13 @@ function abrirTurno(req, res) {
         });
       } catch (error) {
         // Consultar por el nombre ?nico tambi?n cubre una creaci?n concurrente o una respuesta perdida.
-        caja = await buscarCajaPrincipal(c);
+        caja = await buscarCajaPrincipal(c, actorId);
         if (!caja) {
           console.error("Error inicializando Caja Principal:", error.code);
           return fallo(res, 503, "No se pudo preparar la Caja Principal. Actualiza Caja y vuelve a consultar");
         }
       }
-      caja ??= await buscarCajaPrincipal(c);
+      caja ??= await buscarCajaPrincipal(c, actorId);
     }
     if (!caja || caja.ESTADO_OPERATIVO !== "S") {
       return fallo(res, 409, "La Caja Principal está fuera de servicio o no está disponible");
@@ -90,18 +78,14 @@ router.use((req, res, next) => {
 });
 
 router.get("/", (req, res) => autorizar(req, res, async (c, actor) => {
-  const caja = await buscarCajaPrincipal(c);
-  const activos = caja ? await filas(c, `${turnosSql} AND T.ID_CAJA = :cajaId
-    AND T.ESTADO_TURNO = 'ABIERTO' ORDER BY T.ID_TURNO_CAJA`, { ...actor, cajaId: caja.ID_CAJA }) : [];
+  const caja = await buscarCajaPrincipal(c, actor.actorId);
+  const activos = caja ? await consultarProcedimiento(c, "SAB_API_CAJA_ABIERTOS", { ...actor, cajaId: caja.ID_CAJA }) : [];
   let resumenDia = { CANTIDAD: 0, TOTAL: 0 };
   if (caja) {
     const hoy = new Intl.DateTimeFormat("sv-SE", { timeZone: "America/Santiago" }).format();
-    [resumenDia] = await filas(c, `SELECT COUNT(*) AS CANTIDAD, NVL(SUM(V.TOTAL_VENTA), 0) AS TOTAL
-      FROM VENTA V JOIN TURNO_CAJA T ON T.ID_TURNO_CAJA = V.ID_TURNO_CAJA
-      WHERE T.ID_CAJA = :cajaId AND V.ESTADO_VENTA = 'CONFIRMADA'
-        AND V.FECHA_HORA_VENTA >= TO_TIMESTAMP(:hoy, 'YYYY-MM-DD')
-        AND V.FECHA_HORA_VENTA < TO_TIMESTAMP(:hoy, 'YYYY-MM-DD') + INTERVAL '1' DAY`,
-    { cajaId: caja.ID_CAJA, hoy });
+    const [resumen] = await consultarProcedimiento(c, "SAB_API_CAJA_RESUMEN_DIA",
+      { actorId: actor.actorId, cajaId: caja.ID_CAJA, hoy });
+    resumenDia = resumen ?? resumenDia;
   }
   res.json({ caja, activos, resumenDia });
 }));
@@ -112,10 +96,7 @@ router.get("/turnos", (req, res) => autorizar(req, res, async (c, actor) => {
   if (!idValido(pagina) || pagina > 1000000 || (cajaId !== null && !idValido(cajaId))) {
     return fallo(res, 400, "Filtros de historial inválidos");
   }
-  const turnos = await filas(c, `${turnosSql} AND T.ESTADO_TURNO = 'CERRADO'
-    AND (:cajaId IS NULL OR T.ID_CAJA = :cajaId)
-    ORDER BY T.FECHA_HORA_CIERRE DESC, T.ID_TURNO_CAJA DESC
-    OFFSET :desplazamiento ROWS FETCH NEXT 26 ROWS ONLY`,
+  const turnos = await consultarProcedimiento(c, "SAB_API_CAJA_HISTORIAL",
   { ...actor, cajaId, desplazamiento: (pagina - 1) * 25 });
   res.json({ turnos: turnos.slice(0, 25), hayMas: turnos.length > 25 });
 }));
@@ -126,30 +107,16 @@ router.get("/turnos/:id", (req, res) => autorizar(req, res, async (c, actor) => 
   if (!idValido(turnoId) || !idValido(pagina) || pagina > 1000000) {
     return fallo(res, 400, "Identificador o página inválidos");
   }
-  const [turno] = await filas(c, `${turnosSql} AND T.ID_TURNO_CAJA = :turnoId`, { ...actor, turnoId });
+  const [turno] = await consultarProcedimiento(c, "SAB_API_CAJA_TURNO", { ...actor, turnoId });
   if (!turno) return fallo(res, 404, "Turno no encontrado");
-  const pagos = await filas(c, `SELECT M.NOMBRE_METODO, NVL(SUM(P.MONTO_PAGADO), 0) AS TOTAL
-    FROM METODO_PAGO M LEFT JOIN (
-      SELECT P.ID_METODO_PAGO, P.MONTO_PAGADO FROM PAGO_VENTA P
-      JOIN VENTA V ON V.ID_VENTA = P.ID_VENTA
-      WHERE V.ID_TURNO_CAJA = :turnoId AND V.ESTADO_VENTA = 'CONFIRMADA'
-    ) P ON P.ID_METODO_PAGO = M.ID_METODO_PAGO
-    GROUP BY M.NOMBRE_METODO ORDER BY M.NOMBRE_METODO`, { turnoId });
-  const ventas = await filas(c, `SELECT V.ID_VENTA, U.NOMBRE_COMPLETO AS RESPONSABLE, V.ESTADO_VENTA,
-      V.TOTAL_VENTA, TO_CHAR(V.FECHA_HORA_VENTA, 'DD/MM/YYYY HH24:MI:SS') AS FECHA
-    FROM VENTA V JOIN USUARIO U ON U.ID_USUARIO = V.ID_USUARIO
-    WHERE V.ID_TURNO_CAJA = :turnoId AND (:dueno = 1 OR V.ID_USUARIO = :actorId)
-    ORDER BY V.FECHA_HORA_VENTA DESC, V.ID_VENTA DESC
-    OFFSET :desplazamiento ROWS FETCH NEXT 26 ROWS ONLY`,
+  const alcanceTurno = { actorId: actor.actorId, turnoId };
+  const pagos = await consultarProcedimiento(c, "SAB_API_CAJA_TURNO_PAGOS", alcanceTurno);
+  const ventas = await consultarProcedimiento(c, "SAB_API_CAJA_TURNO_VENTAS",
   { ...actor, turnoId, desplazamiento: (pagina - 1) * 25 });
-  const [resumen] = await filas(c, `SELECT COUNT(*) AS CANTIDAD, NVL(SUM(TOTAL_VENTA), 0) AS TOTAL
-    FROM VENTA WHERE ID_TURNO_CAJA = :turnoId AND ESTADO_VENTA = 'CONFIRMADA'`, { turnoId });
-  const [pendientes] = await filas(c, `SELECT COUNT(*) AS BORRADORES FROM VENTA
-    WHERE ID_TURNO_CAJA = :turnoId AND ESTADO_VENTA = 'BORRADOR'`, { turnoId });
-  const auditoria = await filas(c, `SELECT L.ID_LOG_CAJA, L.TIPO_OPERACION, L.DESCUADRE_TOTAL,
-      U.NOMBRE_COMPLETO AS RESPONSABLE, TO_CHAR(L.FECHA_HORA_REGISTRO, 'DD/MM/YYYY HH24:MI:SS') AS FECHA
-    FROM LOG_AUDITORIA_CAJA L JOIN USUARIO U ON U.ID_USUARIO = L.ID_USUARIO
-    WHERE L.ID_TURNO_CAJA = :turnoId ORDER BY L.ID_LOG_CAJA`, { turnoId });
+  const [resumen] = await consultarProcedimiento(c, "SAB_API_CAJA_TURNO_RESUMEN", alcanceTurno);
+  const [pendientes] = await consultarProcedimiento(c, "SAB_API_CAJA_TURNO_BORRADORES", alcanceTurno);
+  if (!resumen || !pendientes) return fallo(res, 404, "Turno no encontrado");
+  const auditoria = await consultarProcedimiento(c, "SAB_API_CAJA_TURNO_EVENTOS", alcanceTurno);
   res.json({ turno, pagos, resumen, ventas: ventas.slice(0, 25), hayMas: ventas.length > 25,
     borradores: pendientes.BORRADORES, auditoria });
 }));

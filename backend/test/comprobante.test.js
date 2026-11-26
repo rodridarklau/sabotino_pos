@@ -1,4 +1,5 @@
 const assert = require("node:assert/strict");
+const { cursor, nombreProcedimiento, sinCursor } = require("./oracle-mock");
 const { after, before, test } = require("node:test");
 const express = require("express");
 const db = require("../src/config/database");
@@ -29,15 +30,17 @@ before(async () => {
   const conectar = db.obtenerConexion;
   db.obtenerConexion = async () => ({
     async execute(sql, binds) {
-      assert.match(sql, /^SELECT/);
-      if (sql.startsWith("SELECT R.NOMBRE_ROL")) return { rows: [{ NOMBRE_ROL: "VENDEDOR" }] };
-      if (sql.includes("FROM VENTA V")) {
-        assert.match(sql, /V.ESTADO_VENTA = 'CONFIRMADA'/);
-        assert.match(sql, /V.ID_USUARIO = :actorId/);
-        return { rows: binds.ventaId === 123 && binds.actorId === 7 ? [venta] : [] };
+      const nombre = nombreProcedimiento(sql);
+      if (nombre === "SAB_API_ROL_ACTIVO") return cursor([{ NOMBRE_ROL: "VENDEDOR" }]);
+      if (nombre === "SAB_API_VENTA_CABECERA") {
+        assert.equal(binds.comprobante, 1);
+        assert.equal(binds.dueno, 0);
+        return cursor(binds.ventaId === 123 && binds.actorId === 7 ? [venta] : []);
       }
-      if (sql.includes("FROM DETALLE_VENTA")) return { rows: detalles };
-      if (sql.includes("FROM PAGO_VENTA")) return { rows: pagos };
+      if (["SAB_API_VENTA_DETALLE", "SAB_API_VENTA_PAGOS"].includes(nombre)) {
+        assert.deepEqual(sinCursor(binds), { actorId: 7, ventaId: 123, comprobante: 1 });
+        return cursor(nombre === "SAB_API_VENTA_DETALLE" ? detalles : pagos);
+      }
       assert.fail("Consulta inesperada");
     },
     async close() {}

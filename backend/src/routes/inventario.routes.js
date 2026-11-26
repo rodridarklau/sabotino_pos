@@ -1,13 +1,10 @@
 const express = require("express");
-const oracledb = require("oracledb");
+const { consultarProcedimiento, ejecutarProcedimiento, numeroSalida } = require("../config/procedimientos");
 const { obtenerConexion } = require("../config/database");
-const { PRODUCTOS_ACTIVOS, INSUMOS, INSUMOS_ACTIVOS } = require("../config/catalogo-stock");
 
 const router = express.Router();
-const opciones = { outFormat: oracledb.OUT_FORMAT_OBJECT };
 const maximoMilesimas = 999999999999;
 const paginaHistorial = 50;
-const tiposSql = "SELECT ID_TIPO_AJUSTE, NOMBRE_TIPO_AJUSTE, FACTOR_OPERACION FROM TIPO_AJUSTE_STOCK";
 const altasEnCurso = new Set();
 const esId = (id) => Number.isSafeInteger(id) && id > 0;
 const decimalValido = (valor, escala) => typeof valor === "number" && valor >= 0 &&
@@ -53,15 +50,9 @@ router.use((req, res, next) => {
   next();
 });
 
-async function consultar(conexion, sql, binds = {}) {
-  return (await conexion.execute(sql, binds, opciones)).rows;
-}
-
 async function validarDueno(conexion, actorId) {
-  const [permiso] = await consultar(
-    conexion, "SELECT SAB_F_ES_DUENO(:actorId) AS PERMITIDO FROM DUAL", { actorId }
-  );
-  return permiso.PERMITIDO === 1;
+  const { permitido } = await ejecutarProcedimiento(conexion, "SAB_API_ES_DUENO", { actorId, permitido: numeroSalida });
+  return permitido === 1;
 }
 
 async function cerrarConexion(conexion) {
@@ -80,10 +71,12 @@ router.get("/", async (req, res) => {
     if (!await validarDueno(conexion, req.session.usuario.id)) {
       return responderError(res, 403, "El usuario de la sesión ya no tiene acceso al inventario");
     }
-    const productos = await consultar(conexion, `${PRODUCTOS_ACTIVOS} ORDER BY P.NOMBRE_PRODUCTO, P.ID_PRODUCTO`);
-    const consultaInsumos = req.query.incluirInactivos === "1" ? INSUMOS : INSUMOS_ACTIVOS;
-    const insumos = await consultar(conexion, `${consultaInsumos} ORDER BY I.NOMBRE_INSUMO, I.ID_INSUMO`);
-    const tipos = await consultar(conexion, `${tiposSql} ORDER BY ID_TIPO_AJUSTE`);
+    const actorId = req.session.usuario.id;
+    const productos = await consultarProcedimiento(conexion, "SAB_API_STOCK_PRODUCTOS", { actorId });
+    const insumos = await consultarProcedimiento(conexion, "SAB_API_STOCK_INSUMOS", {
+      actorId, incluirInactivos: Number(req.query.incluirInactivos === "1")
+    });
+    const tipos = await consultarProcedimiento(conexion, "SAB_L_TIPO_AJUSTE_STOCK", { actorId });
     res.json({ estado: "OK", productos, insumos, tipos });
   } catch (error) {
     console.error("Error consultando inventario:", error.code);
@@ -105,18 +98,8 @@ router.get("/historial", async (req, res) => {
     if (!await validarDueno(conexion, req.session.usuario.id)) {
       return responderError(res, 403, "El usuario de la sesión ya no tiene acceso al inventario");
     }
-    const ajustes = await consultar(conexion, `SELECT A.ID_AJUSTE, P.NOMBRE_PRODUCTO,
-        TO_CHAR(A.FECHA_HORA_AJUSTE, 'DD/MM/YYYY HH24:MI:SS') AS FECHA,
-        A.CANTIDAD_AJUSTADA, T.NOMBRE_TIPO_AJUSTE, T.FACTOR_OPERACION,
-        A.OBSERVACION, U.NOMBRE_COMPLETO AS RESPONSABLE, M.CODIGO_UNIDAD
-      FROM AJUSTE_INVENTARIO A
-      JOIN PRODUCTO P ON P.ID_PRODUCTO = A.ID_PRODUCTO
-      JOIN UNIDAD_MEDIDA M ON M.ID_UNIDAD = P.ID_UNIDAD
-      JOIN TIPO_AJUSTE_STOCK T ON T.ID_TIPO_AJUSTE = A.ID_TIPO_AJUSTE
-      JOIN USUARIO U ON U.ID_USUARIO = A.ID_USUARIO
-      ORDER BY A.FECHA_HORA_AJUSTE DESC, A.ID_AJUSTE DESC
-      OFFSET :desplazamiento ROWS FETCH NEXT :limite ROWS ONLY`, {
-      desplazamiento: (pagina - 1) * paginaHistorial,
+    const ajustes = await consultarProcedimiento(conexion, "SAB_API_INVENTARIO_HISTORIAL", {
+      actorId: req.session.usuario.id, desplazamiento: (pagina - 1) * paginaHistorial,
       limite: paginaHistorial + 1
     });
     res.json({ estado: "OK", ajustes: ajustes.slice(0, paginaHistorial), hayMas: ajustes.length > paginaHistorial });
@@ -146,25 +129,18 @@ router.post("/insumos", async (req, res) => {
   try {
     conexion = await obtenerConexion();
     if (!await validarDueno(conexion, actorId)) return responderError(res, 403, "Solo el dueño activo puede registrar insumos");
-    const [unidad] = await consultar(conexion, "SELECT PERMITE_DECIMALES FROM UNIDAD_MEDIDA WHERE ID_UNIDAD = :unidadId", { unidadId });
-    if (!unidad) return responderError(res, 400, "La unidad seleccionada ya no existe");
-    if (unidad.PERMITE_DECIMALES === "N" && ![stockInicial, stockCritico].every(Number.isInteger)) {
-      return responderError(res, 400, "La unidad seleccionada requiere existencias enteras");
-    }
-    const [proveedor] = await consultar(conexion, "SELECT ID_PROVEEDOR FROM PROVEEDOR WHERE ID_PROVEEDOR = :proveedorId", { proveedorId });
-    if (!proveedor) return responderError(res, 400, "El proveedor seleccionado ya no existe");
     enviado = true;
-    const { outBinds } = await conexion.execute(
-      `BEGIN SAB_C_INSUMO(:actorId, :unidadId, :proveedorId, :nombre, :costo,
-        :stockInicial, :stockCritico, :estado, :nuevoId); END;`,
-      { actorId, unidadId, proveedorId, nombre: nombre.trim(), costo, stockInicial, stockCritico, estado,
-        nuevoId: { dir: oracledb.BIND_OUT, type: oracledb.NUMBER } }
-    );
+    const outBinds = await ejecutarProcedimiento(conexion, "SAB_C_INSUMO", {
+      actorId, unidadId, proveedorId, nombre: nombre.trim(), costo, stockInicial, stockCritico, estado, nuevoId: numeroSalida
+    });
     if (!esId(outBinds?.nuevoId)) throw new Error("Alta sin identificador");
     res.status(201).json({ estado: "OK", idInsumo: outBinds.nuevoId });
   } catch (error) {
     const numero = error.errorNum;
     if ([20001, 20002, 20003].includes(numero)) return responderError(res, 403, "Solo el dueño activo puede registrar insumos");
+    if (numero === 20540) return responderError(res, 400, "La unidad seleccionada ya no existe");
+    if (numero === 20541) return responderError(res, 400, "El proveedor seleccionado ya no existe");
+    if (numero === 20546) return responderError(res, 400, "La unidad seleccionada requiere existencias enteras");
     if (numero === 1) return responderError(res, 409, "Ya existe un insumo con ese nombre");
     if (numero === 2291) return responderError(res, 409, "La unidad o el proveedor ya no está disponible");
     if (numero === 12899) return responderError(res, 400, "El nombre del insumo es demasiado largo");
@@ -208,13 +184,11 @@ router.post("/ajustes", async (req, res) => {
     if (!await validarDueno(conexion, actorId)) {
       return responderError(res, 403, "El usuario de la sesión ya no tiene acceso al inventario");
     }
-    const [tipo] = await consultar(conexion, `${tiposSql} WHERE ID_TIPO_AJUSTE = :tipoAjusteId`, { tipoAjusteId });
+    const tipos = await consultarProcedimiento(conexion, "SAB_L_TIPO_AJUSTE_STOCK", { actorId });
+    const tipo = tipos.find((item) => item.ID_TIPO_AJUSTE === tipoAjusteId);
     if (!tipo) return responderError(res, 404, "El tipo de ajuste ya no existe");
 
-    const sqlArticulo = esProducto
-      ? `${PRODUCTOS_ACTIVOS} AND P.ID_PRODUCTO = :articuloId`
-      : `${INSUMOS_ACTIVOS} AND I.ID_INSUMO = :articuloId`;
-    const [articulo] = await consultar(conexion, sqlArticulo, { articuloId });
+    const [articulo] = await consultarProcedimiento(conexion, "SAB_API_INVENTARIO_ARTICULO", { actorId, tipoArticulo, articuloId });
     if (!articulo) return responderError(res, 404, "El artículo no existe o está inactivo");
     if (articulo.PERMITE_DECIMALES === "N" && !Number.isInteger(cantidad)) {
       return responderError(res, 400, "La unidad del artículo requiere cantidades enteras");
@@ -227,15 +201,13 @@ router.post("/ajustes", async (req, res) => {
         ? "El ajuste dejaría el stock en negativo" : "El saldo excedería la precisión de Oracle");
     }
 
-    const binds = { actorId, articuloId, tipoAjusteId, cantidad,
-      resultado: { dir: oracledb.BIND_OUT, type: oracledb.NUMBER } };
-    const sql = esProducto
-      ? "BEGIN SAB_AJUSTAR_STOCK(:actorId, :articuloId, :tipoAjusteId, :cantidad, :observacion, :resultado); END;"
-      : "BEGIN SAB_AJUSTAR_STOCK_INSUMO(:actorId, :articuloId, :tipoAjusteId, :cantidad, :resultado); END;";
+    const binds = { actorId, articuloId, tipoAjusteId, cantidad };
     if (esProducto) binds.observacion = observacion?.trim() || null;
+    binds.resultado = numeroSalida;
 
     ajusteEnviado = true;
-    const { outBinds } = await conexion.execute(sql, binds);
+    const procedimiento = esProducto ? "SAB_AJUSTAR_STOCK" : "SAB_AJUSTAR_STOCK_INSUMO";
+    const outBinds = await ejecutarProcedimiento(conexion, procedimiento, binds);
     const resultado = esProducto ? { idAjuste: outBinds.resultado } : { nuevoStock: outBinds.resultado };
     res.status(201).json({ estado: "OK", ...resultado });
   } catch (error) {

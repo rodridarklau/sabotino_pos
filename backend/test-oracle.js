@@ -2,6 +2,7 @@
 require("dotenv").config();
 
 const oracledb = require("oracledb");
+const { consultarProcedimiento } = require("./src/config/procedimientos");
 
 async function probarConexion() {
   let conexion;
@@ -17,20 +18,15 @@ async function probarConexion() {
 
     console.log("¡Conexión con Oracle exitosa!");
 
-    const resultado = await conexion.execute(
-      `SELECT USER AS USUARIO,
-              (SELECT COUNT(*) FROM USER_TABLES) AS TOTAL_TABLAS
-       FROM DUAL`,
-      [],
-      { outFormat: oracledb.OUT_FORMAT_OBJECT }
-    );
+    const [diagnostico] = await consultarProcedimiento(conexion, "SAB_API_TOTAL_TABLAS");
 
-    console.log("Usuario conectado:", resultado.rows[0].USUARIO);
-    console.log("Tablas disponibles:", resultado.rows[0].TOTAL_TABLAS);
+    console.log("Usuario conectado:", diagnostico.USUARIO);
+    console.log("Tablas disponibles:", diagnostico.TOTAL_TABLAS);
 
   } catch (error) {
     console.error("Error al conectar con Oracle:");
     console.error(error.message);
+    process.exitCode = 1;
 
   } finally {
     if (conexion) {

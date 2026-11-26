@@ -1,4 +1,5 @@
 const assert = require("node:assert/strict");
+const { cursor, nombreProcedimiento, sinCursor } = require("./oracle-mock");
 const { after, before, test } = require("node:test");
 const express = require("express");
 const db = require("../src/config/database");
@@ -9,8 +10,8 @@ before(async () => {
   const original = db.obtenerConexion;
   db.obtenerConexion = async () => ({
     async execute(sql, binds) {
-      llamadas.push({ sql, binds });
-      if (sql.includes("STANDARD_HASH")) return { rows: version === null ? [] : [[version]] };
+      llamadas.push({ sql, binds: sinCursor(binds) });
+      if (nombreProcedimiento(sql) === "SAB_API_VERSION_SESION") return cursor(version === null ? [] : [{ VERSION_CUENTA: version }]);
       assert.match(sql, /SAB_COMPRA_MULTIPLE/);
       if (errorCompra) throw errorCompra;
       return { outBinds: { cantidadLineas: 2, totalCompra: 12.75 } };

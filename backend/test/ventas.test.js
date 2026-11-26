@@ -1,4 +1,5 @@
 const assert = require("node:assert/strict");
+const { cursor, nombreProcedimiento, sinCursor } = require("./oracle-mock");
 const { after, before, beforeEach, test } = require("node:test");
 const express = require("express");
 const oracledb = require("oracledb");
@@ -14,31 +15,31 @@ before(async () => {
   const original = db.obtenerConexion;
   db.obtenerConexion = async () => ({
     async execute(sql, binds) {
-      llamadas.push({ sql, binds });
-      const nombre = /^BEGIN (SAB_[A-Z_]+)\(/.exec(sql)?.[1];
-      if (nombre) {
+      llamadas.push({ sql, binds: sinCursor(binds) });
+      const nombre = nombreProcedimiento(sql);
+      if (/^SAB_(?:VENTA_|ABRIR_CAJA)/.test(nombre)) {
         if (escenario.espera && nombre === "SAB_VENTA_CONFIRMAR") await escenario.espera;
         if (escenario.errores[nombre]) throw escenario.errores[nombre];
         const valor = { SAB_ABRIR_CAJA: 6, SAB_VENTA_INICIAR: 91, SAB_VENTA_CONFIRMAR: 15 }[nombre] ?? 44;
         return { outBinds: { resultado: valor } };
       }
-      if (sql.startsWith("SELECT R.NOMBRE_ROL")) return { rows: escenario.rol ? [{ NOMBRE_ROL: escenario.rol }] : [] };
-      if (sql.includes("FROM PRODUCTO P")) return { rows: escenario.productos };
-      if (sql.includes("FROM METODO_PAGO")) return { rows: escenario.metodos };
-      if (sql.includes("FROM CAJA_TERMINAL")) return { rows: [{ ID_CAJA: 2, NOMBRE_CAJA: "MAIN", ESTADO_OPERATIVO: "S" }] };
-      if (sql.includes("FROM TURNO_CAJA")) {
+      if (nombre === "SAB_API_ROL_ACTIVO") return cursor(escenario.rol ? [{ NOMBRE_ROL: escenario.rol }] : []);
+      if (/^SAB_API_VENTA_(?:CATALOGO|PRODUCTOS)$/.test(nombre)) return cursor(escenario.productos);
+      if (nombre === "SAB_UI_L_METODOS_PAGO") return cursor(escenario.metodos);
+      if (nombre === "SAB_API_CAJA_POR_NOMBRE") return cursor([{ ID_CAJA: 2, NOMBRE_CAJA: "MAIN", ESTADO_OPERATIVO: "S" }]);
+      if (/^SAB_API_VENTA_TURNO/.test(nombre)) {
         assert.equal(binds.nombre, "MAIN");
-        return { rows: escenario.turnos.filter((turno) => !binds.turnoId || turno.ID_TURNO_CAJA === binds.turnoId) };
+        return cursor(escenario.turnos.filter((turno) => !binds.turnoId || turno.ID_TURNO_CAJA === binds.turnoId));
       }
-      if (sql.includes("FROM VENTA V")) {
-        return { rows: escenario.ventas.filter((v) =>
-          (binds.dueno || v.ID_USUARIO === binds.actorId) && (!binds.ventaId || v.ID_VENTA === binds.ventaId)) };
+      if (/^SAB_API_VENTA_(?:HISTORIAL|CABECERA)$/.test(nombre)) {
+        return cursor(escenario.ventas.filter((v) =>
+          (binds.dueno || v.ID_USUARIO === binds.actorId) && (!binds.ventaId || v.ID_VENTA === binds.ventaId)));
       }
-      if (sql.includes("FROM VENTA WHERE")) {
-        return { rows: escenario.ventas.filter((v) => v.ID_VENTA === binds.ventaId && v.ID_USUARIO === binds.actorId) };
+      if (nombre === "SAB_API_VENTA_PROPIA") {
+        return cursor(escenario.ventas.filter((v) => v.ID_VENTA === binds.ventaId && v.ID_USUARIO === binds.actorId));
       }
-      if (sql.includes("FROM DETALLE_VENTA")) return { rows: [{ ID_DETALLE_VENTA: 12 }] };
-      if (sql.includes("FROM PAGO_VENTA")) return { rows: [{ ID_PAGO_VENTA: 21 }] };
+      if (nombre === "SAB_API_VENTA_DETALLE") return cursor([{ ID_DETALLE_VENTA: 12 }]);
+      if (nombre === "SAB_API_VENTA_PAGOS") return cursor([{ ID_PAGO_VENTA: 21 }]);
       assert.fail(`SQL inesperado: ${sql}`);
     },
     async close() { cierres += 1; }
@@ -76,7 +77,7 @@ beforeEach(() => {
 });
 
 const bindsSalida = { dir: oracledb.BIND_OUT, type: oracledb.NUMBER };
-const escritura = () => llamadas.filter(({ sql }) => /^BEGIN /.test(sql));
+const escritura = () => llamadas.filter(({ sql }) => /^SAB_(?:VENTA_|ABRIR_CAJA)/.test(nombreProcedimiento(sql)));
 const nombres = () => escritura().map(({ sql }) => /^BEGIN (SAB_[A-Z_]+)/.exec(sql)[1]);
 const post = (ruta, cuerpo) => fetch(url + ruta, {
   method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(cuerpo)

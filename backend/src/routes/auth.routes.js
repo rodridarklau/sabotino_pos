@@ -1,9 +1,9 @@
 
 const express = require("express");
-const oracledb = require("oracledb");
 const argon2 = require("argon2");
 
 const { obtenerConexion } = require("../config/database");
+const { consultarProcedimiento, ejecutarProcedimiento, numeroSalida } = require("../config/procedimientos");
 
 const router = express.Router();
 
@@ -14,25 +14,12 @@ router.get("/estado-inicial", async (req, res) => {
   try {
     conexion = await obtenerConexion();
 
-    const usuarios = await conexion.execute(
-      "SELECT COUNT(*) AS TOTAL FROM USUARIO",
-      [],
-      { outFormat: oracledb.OUT_FORMAT_OBJECT }
-    );
-
-    const roles = await conexion.execute(
-      `SELECT COUNT(*) AS TOTAL
-       FROM ROL_USUARIO
-       WHERE NOMBRE_ROL = 'DUENO'
-         AND ESTADO_ACTIVO = 'S'`,
-      [],
-      { outFormat: oracledb.OUT_FORMAT_OBJECT }
-    );
+    const [estadoInicial] = await consultarProcedimiento(conexion, "SAB_API_ESTADO_INICIAL");
 
     res.json({
       estado: "OK",
-      requiereConfiguracion: usuarios.rows[0].TOTAL === 0,
-      rolDuenoConfigurado: roles.rows[0].TOTAL > 0
+      requiereConfiguracion: estadoInicial.TOTAL_USUARIOS === 0,
+      rolDuenoConfigurado: estadoInicial.ROLES_DUENO > 0
     });
 
   } catch (error) {
@@ -87,13 +74,8 @@ router.post("/configurar-dueno", async (req, res) => {
 
     conexion = await obtenerConexion();
 
-    const existentes = await conexion.execute(
-      "SELECT COUNT(*) AS TOTAL FROM USUARIO",
-      [],
-      { outFormat: oracledb.OUT_FORMAT_OBJECT }
-    );
-
-    if (existentes.rows[0].TOTAL > 0) {
+    const [estadoInicial] = await consultarProcedimiento(conexion, "SAB_API_ESTADO_INICIAL");
+    if (estadoInicial.TOTAL_USUARIOS > 0) {
       return res.status(409).json({
         mensaje: "La configuración inicial ya no está disponible"
       });
@@ -103,34 +85,16 @@ router.post("/configurar-dueno", async (req, res) => {
       type: argon2.argon2id
     });
 
-    const resultado = await conexion.execute(
-      `BEGIN
-         SAB_REGISTRAR_DUENO_INICIAL(
-           :rut,
-           :nombre,
-           :usuario,
-           :passwordHash,
-           :nuevoId
-         );
-       END;`,
-      {
-        rut: rutNormalizado,
-        nombre,
-        usuario,
-        passwordHash,
-        nuevoId: {
-          dir: oracledb.BIND_OUT,
-          type: oracledb.NUMBER
-        }
-      }
-    );
+    const { nuevoId } = await ejecutarProcedimiento(conexion, "SAB_REGISTRAR_DUENO_INICIAL", {
+      rut: rutNormalizado, nombre, usuario, passwordHash, nuevoId: numeroSalida
+    });
 
     console.log("Dueño inicial registrado correctamente.");
 
     res.status(201).json({
       estado: "OK",
       mensaje: "Dueño inicial registrado correctamente",
-      idUsuario: resultado.outBinds.nuevoId
+      idUsuario: nuevoId
     });
 
   } catch (error) {
@@ -190,27 +154,11 @@ router.post("/login", limitarLogin, async (req, res) => {
 
     conexion = await obtenerConexion();
 
-    const resultado = await conexion.execute(
-      `SELECT
-         U.ID_USUARIO,
-         U.USERNAME,
-         U.NOMBRE_COMPLETO,
-         U.PASSWORD_HASH,
-         RAWTOHEX(STANDARD_HASH(U.PASSWORD_HASH, 'SHA256')) AS VERSION_CUENTA,
-         R.NOMBRE_ROL
-       FROM USUARIO U
-       JOIN ROL_USUARIO R ON U.ID_ROL = R.ID_ROL
-       WHERE UPPER(U.USERNAME) = UPPER(:username)
-         AND U.ESTADO_USUARIO = 'S'
-         AND R.ESTADO_ACTIVO = 'S'`,
-      { username },
-      { outFormat: oracledb.OUT_FORMAT_OBJECT }
-    );
-
-    const usuario = resultado.rows[0];
+    const credenciales = await consultarProcedimiento(conexion, "SAB_API_CREDENCIALES", { username });
+    const [usuario] = credenciales;
 
     if (
-      resultado.rows.length !== 1 ||
+      credenciales.length !== 1 ||
       !(await argon2.verify(usuario.PASSWORD_HASH, password))
     ) {
       return res.status(401).json({

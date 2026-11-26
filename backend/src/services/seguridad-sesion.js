@@ -1,4 +1,5 @@
 const { obtenerConexion } = require("../config/database");
+const { consultarProcedimiento } = require("../config/procedimientos");
 
 const origenes = new Set(["http://localhost:5173", "http://127.0.0.1:5173"]);
 const metodosLectura = new Set(["GET", "HEAD", "OPTIONS"]);
@@ -21,11 +22,8 @@ async function verificarSesion(req, res, next) {
   try {
     if (typeof req.session.versionCuenta === "string") {
       conexion = await obtenerConexion();
-      const { rows } = await conexion.execute(`SELECT RAWTOHEX(STANDARD_HASH(U.PASSWORD_HASH, 'SHA256'))
-        FROM USUARIO U JOIN ROL_USUARIO R ON R.ID_ROL = U.ID_ROL
-        WHERE U.ID_USUARIO = :id AND U.ESTADO_USUARIO = 'S'
-          AND R.ESTADO_ACTIVO = 'S' AND R.NOMBRE_ROL = :rol`, { id: usuario.id, rol: usuario.rol });
-      vigente = rows[0]?.[0] === req.session.versionCuenta;
+      const [cuenta] = await consultarProcedimiento(conexion, "SAB_API_VERSION_SESION", { actorId: usuario.id, rol: usuario.rol });
+      vigente = cuenta?.VERSION_CUENTA === req.session.versionCuenta;
     }
   } catch (error) {
     console.error("Error verificando sesión:", error.code);

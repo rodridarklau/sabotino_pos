@@ -1,16 +1,14 @@
-﻿const express = require("express");
-const { autorizar, filas, nombreCajaPrincipal } = require("../services/caja-ventas");
-const { alertasStockSql } = require("../services/alertas-stock");
-const { INSUMOS_ACTIVOS } = require("../config/catalogo-stock");
-
+const express = require("express");
+const { autorizar, nombreCajaPrincipal } = require("../services/caja-ventas");
+const { consultarProcedimiento } = require("../config/procedimientos");
 const router = express.Router();
 const fechaSantiago = new Intl.DateTimeFormat("en-CA", {
   timeZone: "America/Santiago", year: "numeric", month: "2-digit", day: "2-digit"
 });
 
-async function consultar(c, clave, sql, binds) {
+async function consultar(c, clave, procedimiento, binds) {
   try {
-    return await filas(c, sql, binds);
+    return await consultarProcedimiento(c, procedimiento, binds);
   } catch (error) {
     console.error("Error consultando Inicio", clave, error.code);
     return null;
@@ -23,20 +21,11 @@ router.get("/", (req, res) => {
     const partes = Object.fromEntries(fechaSantiago.formatToParts().map(({ type, value }) => [type, value]));
     const hoy = `${partes.year}-${partes.month}-${partes.day}`;
     const alcance = { actorId, dueno };
-    const ventas = await consultar(c, "ventas", `SELECT COUNT(*) AS CANTIDAD,
-        NVL(SUM(V.TOTAL_VENTA), 0) AS TOTAL
-      FROM VENTA V WHERE V.ESTADO_VENTA = 'CONFIRMADA'
-        AND V.FECHA_HORA_VENTA >= TO_TIMESTAMP(:hoy, 'YYYY-MM-DD')
-        AND V.FECHA_HORA_VENTA < TO_TIMESTAMP(:hoy, 'YYYY-MM-DD') + INTERVAL '1' DAY
-        AND (:dueno = 1 OR V.ID_USUARIO = :actorId)`, { hoy, ...alcance });
-    const turnos = await consultar(c, "turnos", `SELECT T.ID_TURNO_CAJA, C.NOMBRE_CAJA,
-        TO_CHAR(T.FECHA_HORA_APERTURA, 'HH24:MI DD/MM/YYYY') AS APERTURA
-      FROM TURNO_CAJA T JOIN CAJA_TERMINAL C ON C.ID_CAJA = T.ID_CAJA
-      WHERE T.ESTADO_TURNO = 'ABIERTO' AND C.NOMBRE_CAJA = :nombre AND C.ESTADO_OPERATIVO = 'S'
-      ORDER BY T.FECHA_HORA_APERTURA DESC, T.ID_TURNO_CAJA DESC`, { nombre: nombreCajaPrincipal });
-    const alertas = dueno ? await consultar(c, "stock", alertasStockSql) : undefined;
+    const ventas = await consultar(c, "ventas", "SAB_API_INICIO_VENTAS", { hoy, ...alcance });
+    const turnos = await consultar(c, "turnos", "SAB_API_INICIO_TURNOS", { actorId, nombre: nombreCajaPrincipal });
+    const alertas = dueno ? await consultar(c, "stock", "SAB_API_ALERTAS_PRODUCTOS", { actorId }) : undefined;
     const alertasInsumos = dueno ? await consultar(c, "stock-insumos",
-      `${INSUMOS_ACTIVOS} AND I.STOCK_ACTUAL <= I.STOCK_CRITICO ORDER BY I.NOMBRE_INSUMO, I.ID_INSUMO`) : undefined;
+      "SAB_API_ALERTAS_INSUMOS", { actorId }) : undefined;
     res.json({ hoy, ventas: ventas?.[0] ?? null, turnos, alertas, alertasInsumos });
   });
 });

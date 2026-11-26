@@ -1,8 +1,16 @@
 // Consultas analíticas contra filas simuladas en CTE. No crea objetos ni escribe en Oracle.
 const assert = require("node:assert/strict");
+const { readFileSync } = require("node:fs");
+const { resolve } = require("node:path");
+const { cursor, nombreProcedimiento, sinCursor } = require("./oracle-mock");
 const oracledb = require("oracledb");
 const db = require("../src/config/database");
 const { leer, filtros } = require("../src/services/reportes");
+
+const archivo = resolve(__dirname, "../../docs/oracle/migracion-procedimientos/09_reportes.sql");
+const consultas = new Map([...readFileSync(archivo, "utf8").matchAll(
+  /CREATE OR REPLACE PROCEDURE (SAB_API_REP_[A-Z_]+)\([\s\S]*?OPEN p_resultado FOR\s+([\s\S]*?);\s+END;/g
+)].map(([, nombre, consulta]) => [nombre, consulta.replace(/\bp_([a-zA-Z]+)\b/g, ":$1")]));
 
 const simuladas = `
 VENTA (ID_VENTA, ID_USUARIO, ID_TURNO_CAJA, ESTADO_VENTA, TOTAL_VENTA, FECHA_HORA_VENTA) AS (
@@ -56,16 +64,19 @@ async function comprobar() {
   try {
     conexion = await db.obtenerConexion();
     const lectura = {
-      execute(sql, ...args) {
+      async execute(llamada, binds, opciones) {
+        const sql = consultas.get(nombreProcedimiento(llamada));
+        const { actorId, ...filtros } = sinCursor(binds);
         assert.match(sql, /^WITH /);
         assert.doesNotMatch(sql, /;|\bFOR\s+UPDATE\b|\.NEXTVAL\b/i);
         const ctes = simuladas.trim().split(/,\n(?=[A-Z_]+ \()/).filter((cte) =>
           new RegExp(`\\b(?:FROM|JOIN) ${cte.split(" ")[0]}\\b`).test(sql));
-        return conexion.execute(`WITH ${ctes.join(",\n")}, ${sql.slice(5)}`.replace(/\bSELECT\b/g, "SELECT /*+ NO_QUERY_TRANSFORMATION */"), ...args);
+        const resultado = await conexion.execute(`WITH ${ctes.join(",\n")}, ${sql.slice(5)}`.replace(/\bSELECT\b/g, "SELECT /*+ NO_QUERY_TRANSFORMATION */"), filtros, opciones);
+        return cursor(resultado.rows);
       }
     };
     const rango = { desde: "2026-11-02", hasta: "2026-11-02" };
-    const consultar = (seccion, adicionales = {}) => leer(lectura, seccion, filtros({ ...rango, ...adicionales }));
+    const consultar = (seccion, adicionales = {}) => leer(lectura, 1, seccion, filtros({ ...rango, ...adicionales }));
     const ventas = await consultar("ventas");
     assert.deepEqual(ventas.indicadores, {
       TRANSACCIONES: 2, INGRESOS: 130, TICKET: 65,

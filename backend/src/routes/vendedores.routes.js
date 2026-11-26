@@ -1,10 +1,9 @@
 const express = require("express");
+const { consultarProcedimiento } = require("../config/procedimientos");
 const argon2 = require("argon2");
-const { autorizar, buscarCajaPrincipal, fallo, filas, idValido, procedimiento, salida } = require("../services/caja-ventas");
+const { autorizar, buscarCajaPrincipal, fallo, idValido, procedimiento, salida } = require("../services/caja-ventas");
 
 const router = express.Router();
-const usuarios = `FROM USUARIO U JOIN ROL_USUARIO R ON R.ID_ROL = U.ID_ROL
-  WHERE R.NOMBRE_ROL = 'VENDEDOR'`;
 const dias = ["LUNES", "MARTES", "MIERCOLES", "JUEVES", "VIERNES", "SABADO", "DOMINGO"];
 const hora = /^([01][0-9]|2[0-3]):[0-5][0-9]$/;
 const errores = {
@@ -37,15 +36,10 @@ async function ejecutar(res, c, nombre, binds, respuesta, codigo = 200) {
   }
 }
 
-router.get("/", (req, res) => gestionar(req, res, async (c) => {
-  const vendedores = await filas(c, `SELECT U.ID_USUARIO, U.RUT_USUARIO, U.NOMBRE_COMPLETO,
-    U.USERNAME, U.ESTADO_USUARIO ${usuarios} ORDER BY U.NOMBRE_COMPLETO, U.ID_USUARIO`);
-  const horarios = await filas(c, `SELECT H.ID_HORARIO, H.ID_USUARIO, H.ID_CAJA, C.NOMBRE_CAJA,
-      H.DIA_SEMANA, H.HORA_INICIO, H.HORA_FIN, H.ESTADO_ACTIVO
-    FROM HORARIO_VENDEDOR H JOIN CAJA_TERMINAL C ON C.ID_CAJA = H.ID_CAJA
-    JOIN USUARIO U ON U.ID_USUARIO = H.ID_USUARIO JOIN ROL_USUARIO R ON R.ID_ROL = U.ID_ROL
-    WHERE R.NOMBRE_ROL = 'VENDEDOR' ORDER BY H.HORA_INICIO, H.ID_HORARIO`);
-  const caja = await buscarCajaPrincipal(c);
+router.get("/", (req, res) => gestionar(req, res, async (c, actorId) => {
+  const vendedores = await consultarProcedimiento(c, "SAB_API_VENDEDORES", { actorId });
+  const horarios = await consultarProcedimiento(c, "SAB_API_VENDEDOR_HORARIOS", { actorId });
+  const caja = await buscarCajaPrincipal(c, actorId);
   const cajas = caja?.ESTADO_OPERATIVO === "S" ? [caja] : [];
   res.json({ vendedores, horarios, cajas });
 }));
@@ -67,13 +61,11 @@ function guardarUsuario(req, res) {
     }
     let rolId = null;
     if (editar) {
-      const [vendedor] = await filas(c, `SELECT U.ID_ROL ${usuarios} AND U.ID_USUARIO = :id`, { id });
+      const [vendedor] = await consultarProcedimiento(c, "SAB_API_VENDEDOR_ROL", { actorId, id });
       if (!vendedor) return fallo(res, 404, "Vendedor no encontrado");
       rolId = vendedor.ID_ROL;
     }
-    const [duplicado] = await filas(c, `SELECT ID_USUARIO FROM USUARIO
-      WHERE UPPER(USERNAME) = UPPER(:usuario) AND (:id IS NULL OR ID_USUARIO <> :id)
-      FETCH FIRST 1 ROW ONLY`, { usuario: usuario.trim(), id: editar ? id : null });
+    const [duplicado] = await consultarProcedimiento(c, "SAB_API_VENDEDOR_DUPLICADO", { actorId, usuario: usuario.trim(), id: editar ? id : null });
     if (duplicado) return fallo(res, 409, "El nombre de usuario ya está registrado");
     const hash = cambiarPassword ? await argon2.hash(password, { type: argon2.argon2id }) : null;
     const datos = { rolId, rut: rut.trim(), nombre: nombre.trim(), usuario: usuario.trim(), hash, estado };
@@ -83,10 +75,8 @@ function guardarUsuario(req, res) {
   }, true);
 }
 
-async function horarioVendedor(c, id) {
-  const [horario] = await filas(c, `SELECT H.ID_HORARIO FROM HORARIO_VENDEDOR H
-    JOIN USUARIO U ON U.ID_USUARIO = H.ID_USUARIO JOIN ROL_USUARIO R ON R.ID_ROL = U.ID_ROL
-    WHERE H.ID_HORARIO = :id AND R.NOMBRE_ROL = 'VENDEDOR'`, { id });
+async function horarioVendedor(c, actorId, id) {
+  const [horario] = await consultarProcedimiento(c, "SAB_API_VENDEDOR_HORARIO", { actorId, id });
   return horario;
 }
 
@@ -100,9 +90,9 @@ function guardarHorario(req, res) {
       !hora.test(inicio) || !hora.test(fin) || fin <= inicio || !["S", "N"].includes(estado)) {
       return fallo(res, 400, "Selecciona un vendedor y un intervalo válido dentro del mismo día");
     }
-    const [vendedor] = await filas(c, `SELECT U.ID_USUARIO ${usuarios} AND U.ID_USUARIO = :vendedorId`, { vendedorId });
-    if (!vendedor || (editar && !await horarioVendedor(c, id))) return fallo(res, 404, "Vendedor u horario no encontrado");
-    const caja = await buscarCajaPrincipal(c);
+    const [vendedor] = await consultarProcedimiento(c, "SAB_API_VENDEDOR_EXISTE", { actorId, vendedorId });
+    if (!vendedor || (editar && !await horarioVendedor(c, actorId, id))) return fallo(res, 404, "Vendedor u horario no encontrado");
+    const caja = await buscarCajaPrincipal(c, actorId);
     if (caja?.ESTADO_OPERATIVO !== "S" || (cajaId !== undefined && cajaId !== caja.ID_CAJA)) {
       return fallo(res, 409, "Los horarios se asignan a la Caja Principal cuando está operativa");
     }
@@ -120,7 +110,7 @@ router.put("/horarios/:id", guardarHorario);
 router.delete("/horarios/:id", (req, res) => gestionar(req, res, async (c, actorId) => {
   const id = Number(req.params.id);
   if (!idValido(id)) return fallo(res, 400, "Horario inválido");
-  if (!await horarioVendedor(c, id)) return fallo(res, 404, "Horario no encontrado");
+  if (!await horarioVendedor(c, actorId, id)) return fallo(res, 404, "Horario no encontrado");
   await ejecutar(res, c, "SAB_D_HORARIO_VENDEDOR", { actorId, id }, () => ({ id }));
 }, true));
 

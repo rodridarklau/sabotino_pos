@@ -1,4 +1,5 @@
 const assert = require("node:assert/strict");
+const { cursor, nombreProcedimiento } = require("./oracle-mock");
 const { before, after, test } = require("node:test");
 const { mkdtemp, rm } = require("node:fs/promises");
 const { tmpdir } = require("node:os");
@@ -14,9 +15,10 @@ before(async () => {
   const original = db.obtenerConexion;
   db.obtenerConexion = async () => ({
     async execute(sql, binds) {
-      assert.match(sql, /^SELECT/);
-      if (sql.includes("R.NOMBRE_ROL")) return { rows: [{ NOMBRE_ROL: binds.actorId === 1 ? "DUENO" : "VENDEDOR" }] };
-      return { rows: binds.id === 17 ? [{ ID_PRODUCTO: 17 }] : [] };
+      const nombre = nombreProcedimiento(sql);
+      if (nombre === "SAB_API_ROL_ACTIVO") return cursor([{ NOMBRE_ROL: binds.actorId === 1 ? "DUENO" : "VENDEDOR" }]);
+      assert.equal(nombre, "SAB_API_IMAGEN_PRODUCTO");
+      return cursor(binds.id === 17 ? [{ ID_PRODUCTO: 17 }] : []);
     },
     async close() {}
   });

@@ -64,29 +64,50 @@ docs/
 
 ## Instalación local
 
-**Requisitos:** Git, Node.js compatible con las dependencias del proyecto, npm y una instancia Oracle 21c con el esquema SABOTINO previamente provisionado. El repositorio no garantiza por sí solo la creación completa del esquema.
+Necesitas Git, Node.js compatible con las dependencias del proyecto, npm y una instancia Oracle 21c con una base pluggable abierta, como `XEPDB1` en Oracle XE.
 
 ```bash
 git clone https://github.com/rodridarklau/base-de-datos.git
-cd base-de-datos/backend
-npm ci
+cd base-de-datos
 ```
 
-Crear un archivo local `backend/.env` con la configuración propia. No subirlo al repositorio.
+### Preparar Oracle
+
+Desde una cuenta administradora de la PDB, crea un esquema vacío y sustituye `TU_CONTRASENA` por una contraseña propia.
+
+```sql
+CREATE USER SABOTINO IDENTIFIED BY "TU_CONTRASENA" DEFAULT TABLESPACE USERS QUOTA 64M ON USERS;
+GRANT CREATE SESSION, CREATE TABLE, CREATE SEQUENCE, CREATE PROCEDURE, CREATE TRIGGER TO SABOTINO;
+```
+
+Desde la raíz del repositorio, abre SQL*Plus en la carpeta `docs/oracle`. SQL*Plus solicitará la contraseña.
+
+```powershell
+cd docs/oracle
+sqlplus 'SABOTINO@localhost:1521/XEPDB1' '@instalar_desde_cero.sql'
+```
+
+Al terminar, debe aparecer `Procedimientos de la API: 79 de 79 VALID.`. Si el esquema ya tiene las tablas y procedimientos base, ejecuta el [instalador de la migración](docs/oracle/migracion-procedimientos/instalar.sql) desde su carpeta. La [guía de Oracle](docs/oracle/README.md) describe ambas opciones.
+
+### Iniciar la aplicación
+
+Crea un archivo local `backend/.env` con la configuración propia.
 
 ```dotenv
-ORACLE_USER=
-ORACLE_PASSWORD=
-ORACLE_CONNECT_STRING=
-SESSION_SECRET=
+ORACLE_USER=SABOTINO
+ORACLE_PASSWORD=tu_contrasena
+ORACLE_CONNECT_STRING=localhost:1521/XEPDB1
+SESSION_SECRET=tu_secreto_de_sesion
 PORT=3000
 ```
 
 El secreto de sesión debe tener al menos 32 caracteres y generarse de forma segura. El servicio de correo es opcional y requiere configuración adicional.
 
-Iniciar la API:
+En una terminal, desde la raíz del repositorio, inicia la API.
 
 ```bash
+cd backend
+npm ci
 node server.js
 ```
 
@@ -98,14 +119,16 @@ npm ci
 npm run dev
 ```
 
-Abrir la dirección local que indica Vite (habitualmente `http://localhost:5173`). El proxy de desarrollo conecta con la API local.
+Abre la dirección local que indica Vite (habitualmente `http://localhost:5173`). El proxy de desarrollo conecta con la API local. Si el esquema está vacío de usuarios, registra al primer dueño desde la pantalla de configuración inicial.
 
 ## Verificación
 
 Desde `backend`:
 
 ```bash
-node --test test/*.test.js
+npm run oracle:auditar
+npm test
+node test-oracle.js
 ```
 
 Desde `frontend`:
@@ -114,6 +137,8 @@ Desde `frontend`:
 npm run lint
 npm run build
 ```
+
+La [auditoría ES3](docs/AUDITORIA_ES3_INF324.md) documenta el cumplimiento de la rúbrica. El [inventario de Oracle](docs/oracle/inventario_procedimientos.csv) identifica los 154 procedimientos y su uso.
 
 ## Estado y alcance
 

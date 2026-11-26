@@ -1,4 +1,5 @@
 const assert = require("node:assert/strict");
+const { cursor, nombreProcedimiento, sinCursor } = require("./oracle-mock");
 const { before, after, test } = require("node:test");
 const express = require("express");
 const db = require("../src/config/database");
@@ -13,14 +14,14 @@ before(async () => {
   const original = db.obtenerConexion;
   db.obtenerConexion = async () => ({
     async execute(sql, binds) {
-      llamadas.push({ sql, binds });
-      assert.match(sql, /^(SELECT|WITH)/);
-      assert.doesNotMatch(sql, /\b(?:FOR UPDATE|NEXTVAL|INSERT INTO|DELETE FROM)\b/i);
-      if (sql.startsWith("SELECT R.NOMBRE_ROL")) return { rows: [{ NOMBRE_ROL: binds.actorId === 1 ? "DUENO" : "VENDEDOR" }] };
-      if (sql.includes("OFFSET")) {
-        return { rows: Array.from({ length: 26 }, (_, i) => ({ ID: i + 1, FECHA: "2026-11-02", RESPONSABLE: "=1+1", IMPORTE: 42.5 })) };
+      const nombre = nombreProcedimiento(sql);
+      llamadas.push({ sql, binds: sinCursor(binds) });
+      if (nombre === "SAB_API_ROL_ACTIVO") return cursor([{ NOMBRE_ROL: binds.actorId === 1 ? "DUENO" : "VENDEDOR" }]);
+      if (nombre === "SAB_API_REP_VENTAS_TABLA") {
+        return cursor(Array.from({ length: 26 }, (_, i) => ({ ID: i + 1, FECHA: "2026-11-02", RESPONSABLE: "=1+1", IMPORTE: 42.5 })));
       }
-      return { rows: [] };
+      assert.match(nombre, /^SAB_API_REP_/);
+      return cursor([]);
     },
     async close() {}
   });

@@ -12,6 +12,7 @@ dist/
 build/
 coverage/
 backend/datos-locales/
+/entrega/
 
 # Registros temporales
 *.log

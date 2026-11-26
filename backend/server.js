@@ -3,7 +3,7 @@ require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const session = require("express-session");
-const oracledb = require("oracledb");
+const { consultarProcedimiento } = require("./src/config/procedimientos");
 
 const { iniciarBaseDatos, obtenerConexion } = require("./src/config/database");
 const productosRoutes = require("./src/routes/productos.routes");
@@ -62,13 +62,10 @@ app.get("/api/oracle", async (req, res) => {
   let conexion;
   try {
     conexion = await obtenerConexion();
-    const resultado = await conexion.execute(
-      "SELECT COUNT(*) AS TOTAL_TABLAS FROM USER_TABLES", [],
-      { outFormat: oracledb.OUT_FORMAT_OBJECT }
-    );
+    const [resumen] = await consultarProcedimiento(conexion, "SAB_API_TOTAL_TABLAS");
     res.json({
       estado: "OK", baseDatos: "Oracle 21c", conexion: "Exitosa",
-      totalTablas: resultado.rows[0].TOTAL_TABLAS
+      totalTablas: resumen.TOTAL_TABLAS
     });
   } catch (error) {
     console.error("Error consultando Oracle:", error.message);

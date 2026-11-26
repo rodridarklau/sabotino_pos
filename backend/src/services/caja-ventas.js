@@ -1,9 +1,7 @@
-const oracledb = require("oracledb");
 const { obtenerConexion } = require("../config/database");
+const { ejecutarProcedimiento, consultarProcedimiento, numeroSalida: salida } = require("../config/procedimientos");
 
-const opciones = { outFormat: oracledb.OUT_FORMAT_OBJECT };
 const operaciones = new Set();
-const salida = { dir: oracledb.BIND_OUT, type: oracledb.NUMBER };
 const maximo = 99999999999999;
 const idValido = (id) => Number.isSafeInteger(id) && id > 0;
 const unidades = (valor, escala, limite) => {
@@ -19,15 +17,10 @@ function fallo(res, codigo, mensaje, datos = {}) {
   return res.status(codigo).json({ estado: "ERROR", mensaje, ...datos });
 }
 
-async function filas(c, sql, binds = {}) {
-  return (await c.execute(sql, binds, opciones)).rows;
-}
-
 const nombreCajaPrincipal = "MAIN";
 
-async function buscarCajaPrincipal(c) {
-  const [caja] = await filas(c, `SELECT ID_CAJA, NOMBRE_CAJA, ESTADO_OPERATIVO
-    FROM CAJA_TERMINAL WHERE NOMBRE_CAJA = :nombre`, { nombre: nombreCajaPrincipal });
+async function buscarCajaPrincipal(c, actorId) {
+  const [caja] = await consultarProcedimiento(c, "SAB_API_CAJA_POR_NOMBRE", { actorId, nombre: nombreCajaPrincipal });
   return caja ?? null;
 }
 
@@ -43,9 +36,7 @@ async function autorizar(req, res, operacion, escritura = false) {
   let c;
   try {
     c = await obtenerConexion();
-    const [actor] = await filas(c, `SELECT R.NOMBRE_ROL FROM USUARIO U
-      JOIN ROL_USUARIO R ON R.ID_ROL = U.ID_ROL
-      WHERE U.ID_USUARIO = :actorId AND U.ESTADO_USUARIO = 'S' AND R.ESTADO_ACTIVO = 'S'`, { actorId });
+    const [actor] = await consultarProcedimiento(c, "SAB_API_ROL_ACTIVO", { actorId });
     if (actor?.NOMBRE_ROL !== usuario.rol) return fallo(res, 403, "La sesión ya no tiene acceso a Caja o Ventas");
     await operacion(c, { actorId, dueno: Number(usuario.rol === "DUENO") });
   } catch (error) {
@@ -63,12 +54,10 @@ async function autorizar(req, res, operacion, escritura = false) {
 }
 
 async function procedimiento(c, nombre, binds) {
-  const parametros = Object.keys(binds).map((parametro) => `:${parametro}`).join(", ");
-  const resultado = await c.execute(`BEGIN ${nombre}(${parametros}); END;`, binds);
-  const valor = resultado.outBinds?.resultado;
+  const { resultado: valor } = await ejecutarProcedimiento(c, nombre, binds);
   if (binds.resultado && !Number.isFinite(valor)) throw new Error("Salida de Oracle no disponible");
   return valor;
 }
 
-module.exports = { autorizar, buscarCajaPrincipal, centavos, fallo, filas, idValido, maximo,
+module.exports = { autorizar, buscarCajaPrincipal, centavos, fallo, idValido, maximo,
   nombreCajaPrincipal, procedimiento, salida, unidades };

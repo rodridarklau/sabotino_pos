@@ -9,13 +9,13 @@ function soloDueno(req, res, operacion) {
   res.set("Cache-Control", "no-store");
   if (!req.session?.usuario) return fallo(res, 401, "Debes iniciar sesión");
   if (req.session.usuario.rol !== "DUENO") return fallo(res, 403, "Reportes es exclusivo del dueño");
-  return autorizar(req, res, (c) => operacion(c));
+  return autorizar(req, res, (c, { actorId }) => operacion(c, actorId));
 }
 
-router.get("/catalogos", (req, res) => soloDueno(req, res, async (c) => res.json(await catalogos(c))));
+router.get("/catalogos", (req, res) => soloDueno(req, res, async (c, actorId) => res.json(await catalogos(c, actorId))));
 
 function reporte(req, res, formato) {
-  return soloDueno(req, res, async (c) => {
+  return soloDueno(req, res, async (c, actorId) => {
     const { seccion } = req.params;
     if (!secciones.includes(seccion)) return fallo(res, 404, "Reporte no encontrado");
     const f = filtros(req.query);
@@ -23,12 +23,12 @@ function reporte(req, res, formato) {
     if (seccion === "productos" && f.orden === "cantidad" && !f.unidad) {
       return fallo(res, 400, "Selecciona una unidad para ordenar productos por cantidad");
     }
-    const datos = await leer(c, seccion, f, Boolean(formato));
+    const datos = await leer(c, actorId, seccion, f, Boolean(formato));
     if (!formato) return res.json(datos);
     if (datos.hayMas) return fallo(res, 422, `La exportación supera ${maxExportacion} filas. Acota los filtros`);
     const nombre = `SABOTINO_${seccion}_${f.desde}_${f.hasta}`;
     if (formato === "csv") return res.attachment(`${nombre}.csv`).type("text/csv").send(csv(datos.tabla ?? []));
-    const catalogo = await catalogos(c);
+    const catalogo = await catalogos(c, actorId);
     const subtitulo = Object.keys(catalogo).filter((k) => f[k]).map((k) =>
       `${k}: ${catalogo[k].find((item) => item.ID === f[k])?.NOMBRE ?? f[k]}`).join(" · ");
     const detalles = [subtitulo, f.periodo && `Detalle: ${f.periodo}`, seccion === "ventas" && f.estado !== "TODOS" && `Estado del detalle: ${f.estado}`].filter(Boolean).join(" · ");

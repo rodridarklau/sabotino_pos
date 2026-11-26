@@ -1,4 +1,5 @@
 const assert = require("node:assert/strict");
+const { cursor, nombreProcedimiento, sinCursor } = require("./oracle-mock");
 const { after, before, beforeEach, test } = require("node:test");
 const express = require("express");
 const oracledb = require("oracledb");
@@ -14,19 +15,27 @@ before(async () => {
   const obtenerConexion = database.obtenerConexion;
   database.obtenerConexion = async () => ({
     async execute(sql, binds) {
-      llamadas.push({ sql, binds });
-      if (sql.includes("SAB_F_ES_DUENO")) return { rows: [{ PERMITIDO: escenario.permitido }] };
-      if (sql.includes("FROM TIPO_AJUSTE_STOCK")) return { rows: escenario.tipos };
-      if (sql.includes("FROM PRODUCTO")) return { rows: escenario.productos };
-      if (sql.includes("FROM INSUMO")) return { rows: escenario.insumos };
-      if (sql.includes("FROM AJUSTE_INVENTARIO")) return { rows: escenario.historial };
-      if (sql.startsWith("SELECT PERMITE_DECIMALES")) return { rows: binds.unidadId === 4 ? [{ PERMITE_DECIMALES: "N" }] : [] };
-      if (sql.startsWith("SELECT ID_PROVEEDOR")) return { rows: binds.proveedorId === 5 ? [{ ID_PROVEEDOR: 5 }] : [] };
-      if (sql.startsWith("BEGIN SAB_C_INSUMO")) {
+      const nombre = nombreProcedimiento(sql);
+      llamadas.push({ sql, binds: sinCursor(binds) });
+      if (nombre === "SAB_API_ES_DUENO") return { outBinds: { permitido: escenario.permitido } };
+      if (nombre === "SAB_L_TIPO_AJUSTE_STOCK") return cursor(escenario.tipos);
+      if (nombre === "SAB_API_STOCK_PRODUCTOS") return cursor(escenario.productos);
+      if (nombre === "SAB_API_STOCK_INSUMOS") return cursor(escenario.insumos);
+      if (nombre === "SAB_API_INVENTARIO_HISTORIAL") return cursor(escenario.historial);
+      if (nombre === "SAB_API_INVENTARIO_ARTICULO") {
+        const esProducto = binds.tipoArticulo === "PRODUCTO";
+        const lista = esProducto ? escenario.productos : escenario.insumos;
+        const id = esProducto ? "ID_PRODUCTO" : "ID_INSUMO";
+        return cursor(lista.filter((articulo) => articulo[id] === binds.articuloId));
+      }
+      if (nombre === "SAB_C_INSUMO") {
         if (escenario.error) throw escenario.error;
+        if (binds.unidadId !== 4) throw { errorNum: 20540 };
+        if (binds.proveedorId !== 5) throw { errorNum: 20541 };
+        if (![binds.stockInicial, binds.stockCritico].every(Number.isInteger)) throw { errorNum: 20546 };
         return { outBinds: { nuevoId: escenario.resultado } };
       }
-      if (sql.startsWith("BEGIN SAB_AJUSTAR_STOCK")) {
+      if (nombre.startsWith("SAB_AJUSTAR_STOCK")) {
         if (escenario.error) throw escenario.error;
         return { outBinds: { resultado: escenario.resultado } };
       }
@@ -78,7 +87,7 @@ function ajustar(datos = {}) {
 }
 
 function escrituras() {
-  return llamadas.filter(({ sql }) => sql.startsWith("BEGIN"));
+  return llamadas.filter(({ sql }) => /^SAB_(?:C_INSUMO|AJUSTAR_STOCK)/.test(nombreProcedimiento(sql)));
 }
 
 function crearInsumo(datos = {}) {
@@ -99,9 +108,8 @@ test("alta de insumo usa los nueve parámetros y el actor de la sesión", async 
     stockInicial: 4, stockCritico: 1, estado: "N", nuevoId: { dir: oracledb.BIND_OUT, type: oracledb.NUMBER } });
   await fetch(url);
   await fetch(`${url}?incluirInactivos=1`);
-  const consultas = llamadas.filter(({ sql }) => sql.includes("FROM INSUMO"));
-  assert.match(consultas[0].sql, /WHERE I\.ESTADO_ACTIVO = 'S'/);
-  assert.doesNotMatch(consultas[1].sql, /WHERE I\.ESTADO_ACTIVO/);
+  const consultas = llamadas.filter(({ sql }) => nombreProcedimiento(sql) === "SAB_API_STOCK_INSUMOS");
+  assert.deepEqual(consultas.map(({ binds }) => binds.incluirInactivos), [0, 1]);
 });
 
 test("alta valida permisos, referencias, importes y errores sin exponer Oracle", async () => {
@@ -111,11 +119,14 @@ test("alta valida permisos, referencias, importes y errores sin exponer Oracle",
   escenario.permitido = 0;
   assert.equal((await crearInsumo()).status, 403);
   escenario.permitido = 1;
-  for (const datos of [{ nombre: " " }, { costo: -1 }, { costo: 1.234 }, { stockCritico: 0.1234 },
-    { stockInicial: 1.5 }, { unidadId: 9 }, { proveedorId: 9 }]) {
+  for (const datos of [{ nombre: " " }, { costo: -1 }, { costo: 1.234 }, { stockCritico: 0.1234 }]) {
     assert.equal((await crearInsumo(datos)).status, 400);
   }
   assert.equal(escrituras().length, 0);
+  for (const datos of [{ stockInicial: 1.5 }, { unidadId: 9 }, { proveedorId: 9 }]) {
+    assert.equal((await crearInsumo(datos)).status, 400);
+  }
+  assert.equal(escrituras().length, 3);
   escenario.error = { errorNum: 1 };
   assert.equal((await crearInsumo()).status, 409);
   escenario.error = { code: "NJS-500" };
@@ -134,7 +145,7 @@ test("consulta artículos, tipos y la siguiente página de historial", async () 
   const datos = await historial.json();
   assert.equal(datos.ajustes.length, 50);
   assert.equal(datos.hayMas, true);
-  assert.deepEqual(llamadas.at(-1).binds, { desplazamiento: 50, limite: 51 });
+  assert.deepEqual(llamadas.at(-1).binds, { actorId: 7, desplazamiento: 50, limite: 51 });
   assert.equal((await fetch(`${url}/historial?pagina=0`)).status, 400);
   assert.equal(escrituras().length, 0);
   assert.equal(cerradas, 2);

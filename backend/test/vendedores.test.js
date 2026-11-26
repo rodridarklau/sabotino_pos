@@ -1,4 +1,5 @@
 const assert = require("node:assert/strict");
+const { cursor, nombreProcedimiento, sinCursor } = require("./oracle-mock");
 const { after, before, beforeEach, test } = require("node:test");
 const express = require("express");
 const argon2 = require("argon2");
@@ -14,21 +15,22 @@ before(async () => {
   const original = db.obtenerConexion;
   db.obtenerConexion = async () => ({
     async execute(sql, binds) {
-      llamadas.push({ sql, binds });
-      if (sql.startsWith("BEGIN")) {
+      const nombre = nombreProcedimiento(sql);
+      llamadas.push({ sql, binds: sinCursor(binds) });
+      if (/^SAB_[CUD]_/.test(nombre)) {
         if (errorOracle) throw { errorNum: errorOracle };
         return { outBinds: { resultado: 9 } };
       }
-      if (sql.startsWith("SELECT R.NOMBRE_ROL")) return { rows: [{ NOMBRE_ROL: rol }] };
-      if (sql.startsWith("SELECT U.ID_ROL")) return { rows: binds.id === 8 ? [{ ID_ROL: 3 }] : [] };
-      if (sql.startsWith("SELECT U.ID_USUARIO FROM")) return { rows: binds.vendedorId === 8 ? [{ ID_USUARIO: 8 }] : [] };
-      if (sql.startsWith("SELECT H.ID_HORARIO FROM")) return { rows: binds.id === 9 ? [{ ID_HORARIO: 9 }] : [] };
-      if (sql.includes("FROM CAJA_TERMINAL WHERE NOMBRE_CAJA")) {
+      if (nombre === "SAB_API_ROL_ACTIVO") return cursor([{ NOMBRE_ROL: rol }]);
+      if (nombre === "SAB_API_VENDEDOR_ROL") return cursor(binds.id === 8 ? [{ ID_ROL: 3 }] : []);
+      if (nombre === "SAB_API_VENDEDOR_EXISTE") return cursor(binds.vendedorId === 8 ? [{ ID_USUARIO: 8 }] : []);
+      if (nombre === "SAB_API_VENDEDOR_HORARIO") return cursor(binds.id === 9 ? [{ ID_HORARIO: 9 }] : []);
+      if (nombre === "SAB_API_CAJA_POR_NOMBRE") {
         assert.equal(binds.nombre, "MAIN");
-        return { rows: [{ ID_CAJA: 1, NOMBRE_CAJA: "MAIN", ESTADO_OPERATIVO: "S" }] };
+        return cursor([{ ID_CAJA: 1, NOMBRE_CAJA: "MAIN", ESTADO_OPERATIVO: "S" }]);
       }
-      assert.match(sql, /^SELECT/);
-      return { rows: [] };
+      assert.match(nombre, /^SAB_API_VENDEDOR/);
+      return cursor([]);
     },
     async close() {}
   });
@@ -57,7 +59,7 @@ const horario = { vendedorId: 8, cajaId: 1, dia: "LUNES", inicio: "09:00", fin: 
 const escribir = (ruta, method, datos) => fetch(url + ruta, {
   method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(datos)
 });
-const escrituras = () => llamadas.filter(({ sql }) => sql.startsWith("BEGIN"));
+const escrituras = () => llamadas.filter(({ sql }) => /^SAB_[CUD]_/.test(nombreProcedimiento(sql)));
 
 test("el listado requiere dueño y consulta solo campos públicos de las cuentas", async () => {
   rol = "VENDEDOR";
@@ -65,7 +67,8 @@ test("el listado requiere dueño y consulta solo campos públicos de las cuentas
   assert.equal((await escribir("", "POST", cuenta)).status, 403);
   rol = "DUENO";
   assert.equal((await fetch(url)).status, 200);
-  assert.ok(llamadas.every(({ sql }) => !sql.includes("PASSWORD_HASH")));
+  const listado = await (await fetch(url)).json();
+  assert.deepEqual(Object.keys(listado), ["vendedores", "horarios", "cajas"]);
 });
 
 test("crea vendedor únicamente con hash Argon2id y rol resuelto por Oracle", async () => {
