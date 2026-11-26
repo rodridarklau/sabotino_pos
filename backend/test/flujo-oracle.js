@@ -7,6 +7,7 @@ const { resolve } = require("node:path");
 const { setTimeout: esperar } = require("node:timers/promises");
 const oracledb = require("oracledb");
 const { consultarProcedimiento, ejecutarProcedimiento, numeroSalida } = require("../src/config/procedimientos");
+const { comprobarConcurrencia } = require("./concurrencia-oracle");
 
 const { SABOTINO_QA_USER: user, SABOTINO_QA_PASSWORD: password, SABOTINO_QA_CONNECT: connectString } = process.env;
 const credenciales = { user, password, connectString };
@@ -15,6 +16,10 @@ const clave = "SABOTINO-prueba-2026";
 async function preparar(conexion) {
   const identidad = await conexion.execute("SELECT USER, (SELECT COUNT(*) FROM USUARIO) FROM DUAL");
   assert.deepEqual(identidad.rows[0], [user, 0], "El esquema de prueba debe estar vacío");
+  const compilacion = await conexion.execute(
+    "SELECT COUNT(*), COUNT(CASE WHEN STATUS = 'VALID' THEN 1 END) FROM USER_OBJECTS WHERE OBJECT_TYPE = 'PROCEDURE'"
+  );
+  assert.deepEqual(compilacion.rows, [[154, 154]], "Los 154 procedimientos deben estar instalados y válidos");
   const roles = await conexion.execute("SELECT NOMBRE_ROL FROM ROL_USUARIO ORDER BY NOMBRE_ROL");
   assert.deepEqual(roles.rows, [["DUENO"], ["VENDEDOR"]], "Instala el catálogo fijo de roles al preparar el esquema de prueba");
   const pagos = await conexion.execute("SELECT ID_METODO_PAGO, NOMBRE_METODO FROM METODO_PAGO ORDER BY ID_METODO_PAGO");
@@ -122,6 +127,17 @@ async function comprobar() {
     await dueno("/inventario/ajustes", 201, post({ tipoArticulo: "INSUMO", articuloId: idInsumo, tipoAjusteId: 1, cantidad: 1 }));
     assert.equal((await dueno("/inventario?incluirInactivos=1", 200)).insumos[0].STOCK_ACTUAL, 5);
     assert.equal((await dueno("/inventario/historial?pagina=1", 200)).ajustes.length, 1);
+    const datosInsumo = { ...insumo, nombre: "Harina editada QA", stockInicial: 0, estado: "S" };
+    await dueno("/inventario/insumos/" + idInsumo, 409, put({ ...datosInsumo, unidadId: 2 }));
+    await dueno("/inventario/insumos/" + idInsumo, 200, put(datosInsumo));
+    const ficha = (await dueno("/inventario/insumos/" + idInsumo, 200)).insumo;
+    assert.equal(ficha.NOMBRE_INSUMO, "Harina editada QA");
+    assert.equal(ficha.STOCK_ACTUAL, 5, "Editar la ficha conserva el stock de Oracle");
+    await dueno("/compras/proveedores/" + idProveedor, 409, { method: "DELETE" });
+    await dueno("/mantenedores/categorias/1", 409, { method: "DELETE" });
+    await dueno("/mantenedores/unidades/1", 409, put({ codigo: "UN", nombre: "UNIDAD", decimales: "S" }));
+    await dueno("/mantenedores/tipos-ajuste/1", 409, put({ nombre: "INGRESO_MANUAL", factor: -1 }));
+    await dueno("/mantenedores/tipos-ajuste/1", 409, { method: "DELETE" });
 
     const cuentaVendedor = { rut: "33333333-3", nombre: "Vendedor QA", usuario: "qaSeller", password: clave, estado: "S" };
     const { id: vendedorId } = await dueno("/vendedores", 201, post(cuentaVendedor));
@@ -130,9 +146,24 @@ async function comprobar() {
     }));
     const { turnoId } = await dueno("/caja/turnos", 201, post({ efectivoInicial: 0 }));
     const caja = (await dueno("/caja", 200)).caja;
+    const terminal = "/mantenedores/terminales/" + caja.ID_CAJA;
+    await dueno(terminal, 409, put({ nombre: "OTRA", ubicacion: null, estado: "S" }));
+    await dueno(terminal, 409, put({ nombre: "MAIN", ubicacion: null, estado: "N" }));
+    await dueno(terminal, 409, { method: "DELETE" });
+    await dueno(terminal, 200, put({ nombre: "MAIN", ubicacion: "QA", estado: "S" }));
+    assert.equal((await dueno("/caja", 200)).activos[0].ID_TURNO_CAJA, turnoId);
+    await dueno("/vendedores/" + idUsuario, 404, { method: "DELETE" });
+    await assert.rejects(ejecutarProcedimiento(conexion, "SAB_D_USUARIO", { actorId: idUsuario, id: idUsuario }), { errorNum: 20015 });
     await dueno("/vendedores/horarios", 201, post({ vendedorId, cajaId: caja.ID_CAJA, dia: "LUNES", inicio: "10:00", fin: "11:00", estado: "S" }));
     assert.equal((await dueno("/vendedores", 200)).horarios.length, 1);
     await vendedor("/auth/login", 200, post({ username: cuentaVendedor.usuario, password: clave }));
+    await vendedor("/mantenedores/categorias", 403);
+    await vendedor("/mantenedores/categorias", 403, post({ nombre: "Sin permiso" }));
+    await vendedor("/inventario/insumos/" + idInsumo, 403, put(datosInsumo));
+    await vendedor("/compras/proveedores/" + idProveedor, 403, { method: "DELETE" });
+    await vendedor("/vendedores/" + otroVendedor, 403, { method: "DELETE" });
+    await assert.rejects(consultarProcedimiento(conexion, "SAB_L_CATEGORIA_PRODUCTO", { actorId: vendedorId }), { errorNum: 20003 });
+    await assert.rejects(ejecutarProcedimiento(conexion, "SAB_D_USUARIO", { actorId: vendedorId, id: otroVendedor }), { errorNum: 20003 });
     assert.equal(Object.hasOwn((await vendedor("/productos", 200)).productos[0], "PROVEEDOR_ACTUAL"), false);
     const catalogo = await vendedor("/ventas/catalogos", 200);
     assert.equal(catalogo.metodos.length, 3);
@@ -208,6 +239,7 @@ async function comprobar() {
     await dueno("/productos/" + idProducto, 409, put(producto));
     await dueno("/vendedores/" + vendedorId, 200, put({ ...cuentaVendedor, password: clave + "-nueva" }));
     await vendedor("/auth/yo", 401);
+    await comprobarConcurrencia(conexion, credenciales, { actorId: idUsuario, vendedorId, otroVendedor, cajaId: caja.ID_CAJA, idProveedor, idInsumo });
     console.log("Autenticación, diagnóstico, Productos, Compras, Inventario, Vendedores, Caja, Ventas, Inicio, Imágenes y Reportes verificados contra Oracle aislado.");
   } finally {
     if (servidor && servidor.exitCode === null) {

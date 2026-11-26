@@ -9,6 +9,7 @@ import Inventario from "./Inventario.jsx";
 import Ventas from "./Ventas.jsx";
 import Caja from "./Caja.jsx";
 import Vendedores from "./Vendedores.jsx";
+import Mantenedores from "./Mantenedores.jsx";
 import Reportes from "./Reportes.jsx";
 import { Navegacion } from "./Navegacion.jsx";
 import Inicio from "./Inicio.jsx";
@@ -66,7 +67,7 @@ function App({ usuario, onLogout }) {
 
   function permitirSalir(destino) {
     if (destino === vista) return true;
-    if ([...borradores].some(([clave, item]) => item.modulo === vista && /:envio(?:Apertura|Proveedor|-ajuste)?$/.test(clave) && item.valor === true)) {
+    if ([...borradores].some(([clave, item]) => item.modulo === vista && /:envio(?:Apertura|Proveedor|Gestion|-ajuste)?$/.test(clave) && item.valor === true)) {
       window.alert("Espera a que termine la operación antes de cambiar de módulo.");
       return false;
     }
@@ -371,6 +372,8 @@ async function guardarSoloImagen() {
             }} />
         ) : vista === "vendedores" && usuario.rol === "DUENO" ? (
           <Vendedores />
+        ) : vista === "mantenedores" && usuario.rol === "DUENO" ? (
+          <Mantenedores />
         ) : vista === "caja" ? (
           <Caja irAVentas={() => seleccionarVista("ventas")} />
         ) : vista === "ventas" ? (

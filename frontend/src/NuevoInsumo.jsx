@@ -18,6 +18,8 @@ export default function NuevoInsumo({ datos, cambiar, cancelar, crearProveedor, 
   const [guardando, setGuardando] = useBorrador("insumos", "envio", false, () => false);
   const [incierto, setIncierto] = useState(false);
   const envio = useRef(false);
+  const editando = datos.id !== undefined;
+  const camposCantidad = editando ? cantidades.filter(([campo]) => campo !== "stockInicial") : cantidades;
 
   useEffect(() => {
     const control = new AbortController();
@@ -37,7 +39,7 @@ export default function NuevoInsumo({ datos, cambiar, cancelar, crearProveedor, 
     if (envio.current || incierto) return;
     setError("");
     if (!datos.nombre.trim() || !unidad || !proveedor) return setError("Completa el nombre, la unidad y el proveedor.");
-    for (const [campo, etiqueta] of cantidades) {
+    for (const [campo, etiqueta] of camposCantidad) {
       const escala = campo === "costo" ? 2 : decimalesStock;
       const formato = escala ? new RegExp(`^\\d+(?:\\.\\d{1,${escala}})?$`) : /^\d+$/;
       if (!formato.test(datos[campo])) return setError(`${etiqueta}: ingresa un valor no negativo con ${escala ? `hasta ${escala} decimales` : "unidades enteras"}.`);
@@ -45,12 +47,13 @@ export default function NuevoInsumo({ datos, cambiar, cancelar, crearProveedor, 
     envio.current = true;
     setGuardando(true);
     try {
-      const respuesta = await fetch("/api/inventario/insumos", {
-        method: "POST",
+      const respuesta = await fetch(editando ? `/api/inventario/insumos/${datos.id}` : "/api/inventario/insumos", {
+        method: editando ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           nombre: datos.nombre.trim(), unidadId: unidad.ID_UNIDAD, proveedorId: Number(proveedorId),
-          costo: Number(datos.costo), stockInicial: Number(datos.stockInicial), stockCritico: Number(datos.stockCritico),
+          costo: Number(datos.costo), stockCritico: Number(datos.stockCritico),
+          ...(!editando && { stockInicial: Number(datos.stockInicial) }),
           estado: datos.estado
         })
       });
@@ -65,7 +68,7 @@ export default function NuevoInsumo({ datos, cambiar, cancelar, crearProveedor, 
       alGuardar(resultado.idInsumo);
     } catch {
       setIncierto(true);
-      setError("No se pudo confirmar el alta. Revisa las existencias antes de volver a guardar.");
+      setError("No se pudo confirmar la operación. Revisa las existencias antes de volver a guardar.");
       revisarExistencias();
     } finally {
       envio.current = false;
@@ -79,7 +82,7 @@ export default function NuevoInsumo({ datos, cambiar, cancelar, crearProveedor, 
   };
 
   return <section className="panel modulo-operacion nuevo-insumo" aria-labelledby="nuevo-insumo-titulo">
-    <h2 id="nuevo-insumo-titulo">Nuevo insumo</h2>
+    <h2 id="nuevo-insumo-titulo">{editando ? "Editar insumo" : "Nuevo insumo"}</h2>
     {!catalogos && <p role="status">Consultando unidades y proveedores…</p>}
     {catalogos?.error && <p role="alert">{catalogos.error} <button type="button" className="secundario" onClick={() => {
       setCatalogos(null);
@@ -103,7 +106,7 @@ export default function NuevoInsumo({ datos, cambiar, cancelar, crearProveedor, 
             {catalogos?.proveedores?.map((p) => <option key={p.ID_PROVEEDOR} value={p.ID_PROVEEDOR}>{p.RAZON_SOCIAL}</option>)}
           </select>
         </label>
-        {cantidades.map(([campo, etiqueta]) => <label key={campo}>{etiqueta}
+        {camposCantidad.map(([campo, etiqueta]) => <label key={campo}>{etiqueta}
           <input name={campo} type="number" min="0" step={campo === "costo" ? "0.01" : decimalesStock ? "0.001" : "1"}
             value={datos[campo]} onChange={editar} required />
         </label>)}

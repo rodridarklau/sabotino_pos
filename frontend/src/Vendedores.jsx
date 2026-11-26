@@ -134,6 +134,17 @@ export default function Vendedores() {
           <td><div className="caja-acciones">
             <button type="button" disabled={bloqueado} onClick={() => editar(v)}>Editar</button>
             <button type="button" disabled={bloqueado} onClick={() => { setSeleccion(v.ID_USUARIO); setHorario(null); }}>Ver horarios</button>
+            <button type="button" className="peligro" disabled={bloqueado} onClick={() => {
+              if (window.confirm(`¿Eliminar al vendedor "${v.NOMBRE_COMPLETO}"?`)) {
+                void guardar(`/${v.ID_USUARIO}`, "DELETE", undefined, () => {
+                  if (cuenta?.id === v.ID_USUARIO) setCuenta(null);
+                  if (seleccion === v.ID_USUARIO) {
+                    setSeleccion(null);
+                    setHorario(null);
+                  }
+                });
+              }
+            }}>Eliminar vendedor</button>
           </div></td>
         </tr>)}</tbody>
       </table></div>

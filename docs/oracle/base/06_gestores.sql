@@ -605,16 +605,32 @@ CREATE OR REPLACE PROCEDURE SAB_COMPRA_MULTIPLE(
     p_cantidad_lineas OUT NUMBER,
     p_total_compra OUT NUMBER
 ) IS
+    TYPE t_linea IS RECORD (
+        tipo VARCHAR2(20), id_articulo NUMBER, id_proveedor NUMBER,
+        cantidad NUMBER, costo_unitario NUMBER
+    );
+    TYPE t_lineas IS TABLE OF t_linea INDEX BY PLS_INTEGER;
+    v_lineas          t_lineas;
+    v_linea           t_linea;
     v_articulos       JSON_ARRAY_T;
     v_articulo        JSON_OBJECT_T;
     v_elemento        JSON_ELEMENT_T;
-    v_tipo            VARCHAR2(20);
-    v_id_articulo     NUMBER;
-    v_id_proveedor    NUMBER;
-    v_cantidad        NUMBER;
-    v_costo_unitario  NUMBER;
+    v_claves          JSON_ARRAY_T := JSON_ARRAY_T();
+    v_clave           JSON_ARRAY_T;
+    v_claves_json     CLOB;
     v_id_abastec      NUMBER;
     v_nuevo_stock     NUMBER;
+
+    CURSOR c_claves IS
+        SELECT DISTINCT j.tipo, j.id_articulo
+        FROM JSON_TABLE(v_claves_json, '$[*]' COLUMNS (
+            tipo NUMBER PATH '$[0]', id_articulo NUMBER PATH '$[1]'
+        )) j
+        ORDER BY j.tipo, j.id_articulo;
+    CURSOR c_producto(p_id NUMBER) IS
+        SELECT id_producto FROM PRODUCTO WHERE id_producto = p_id FOR UPDATE;
+    CURSOR c_insumo(p_id NUMBER) IS
+        SELECT id_insumo FROM INSUMO WHERE id_insumo = p_id FOR UPDATE;
 
     -- Detecta campos numericos faltantes o de tipo incorrecto.
     FUNCTION numero_obligatorio(p_obj JSON_OBJECT_T, p_campo VARCHAR2)
@@ -665,47 +681,72 @@ BEGIN
         IF NOT v_elemento.is_string THEN
             RAISE_APPLICATION_ERROR(-20205, 'Tipo de articulo invalido');
         END IF;
-        v_tipo := UPPER(TRIM(v_articulo.get_string('tipo')));
-        IF v_tipo IS NULL OR v_tipo NOT IN ('PRODUCTO','INSUMO') THEN
+        v_linea.tipo := UPPER(TRIM(v_articulo.get_string('tipo')));
+        IF v_linea.tipo IS NULL OR v_linea.tipo NOT IN ('PRODUCTO','INSUMO') THEN
             RAISE_APPLICATION_ERROR(-20206, 'Tipo debe ser PRODUCTO o INSUMO');
         END IF;
 
-        v_id_articulo := numero_obligatorio(v_articulo, 'id_articulo');
-        v_id_proveedor := numero_obligatorio(v_articulo, 'id_proveedor');
-        v_cantidad := numero_obligatorio(v_articulo, 'cantidad');
-        v_costo_unitario := numero_obligatorio(v_articulo, 'costo_unitario');
+        v_linea.id_articulo := numero_obligatorio(v_articulo, 'id_articulo');
+        v_linea.id_proveedor := numero_obligatorio(v_articulo, 'id_proveedor');
+        v_linea.cantidad := numero_obligatorio(v_articulo, 'cantidad');
+        v_linea.costo_unitario := numero_obligatorio(v_articulo, 'costo_unitario');
 
-        IF v_id_articulo IS NULL OR v_id_articulo <= 0
-           OR v_id_articulo <> TRUNC(v_id_articulo)
-           OR v_id_proveedor IS NULL OR v_id_proveedor <= 0
-           OR v_id_proveedor <> TRUNC(v_id_proveedor) THEN
+        IF v_linea.id_articulo IS NULL OR v_linea.id_articulo <= 0
+           OR v_linea.id_articulo <> TRUNC(v_linea.id_articulo)
+           OR v_linea.id_proveedor IS NULL OR v_linea.id_proveedor <= 0
+           OR v_linea.id_proveedor <> TRUNC(v_linea.id_proveedor) THEN
             RAISE_APPLICATION_ERROR(-20207, 'Los IDs deben ser enteros positivos');
         END IF;
-        IF v_cantidad IS NULL OR v_cantidad <= 0
-           OR v_cantidad <> ROUND(v_cantidad, 3) THEN
+        IF v_linea.cantidad IS NULL OR v_linea.cantidad <= 0
+           OR v_linea.cantidad <> ROUND(v_linea.cantidad, 3) THEN
             RAISE_APPLICATION_ERROR(-20208, 'Cantidad invalida');
         END IF;
-        IF v_costo_unitario IS NULL OR v_costo_unitario < 0
-           OR v_costo_unitario <> ROUND(v_costo_unitario, 2) THEN
+        IF v_linea.costo_unitario IS NULL OR v_linea.costo_unitario < 0
+           OR v_linea.costo_unitario <> ROUND(v_linea.costo_unitario, 2) THEN
             RAISE_APPLICATION_ERROR(-20209, 'Costo unitario invalido');
         END IF;
 
-        IF v_tipo = 'PRODUCTO' THEN
-            SAB_ABASTECER_CORE(p_actor_id, v_id_articulo, v_id_proveedor,
-                               v_cantidad, v_costo_unitario, v_id_abastec);
+        v_lineas(i) := v_linea;
+        v_clave := JSON_ARRAY_T();
+        v_clave.append(CASE WHEN v_linea.tipo = 'PRODUCTO' THEN 1 ELSE 2 END);
+        v_clave.append(v_linea.id_articulo);
+        v_claves.append(v_clave);
+    END LOOP;
+
+    -- Cada OPEN bloquea una sola fila. Los productos se bloquean en el mismo
+    -- orden que en Ventas, seguidos de los insumos. CLOSE conserva el bloqueo.
+    v_claves_json := v_claves.to_clob();
+    FOR clave IN c_claves LOOP
+        IF clave.tipo = 1 THEN
+            OPEN c_producto(clave.id_articulo);
+            CLOSE c_producto;
         ELSE
-            SAB_ABASTECER_INSUMO_CORE(p_actor_id, v_id_articulo, v_id_proveedor,
-                                      v_cantidad, v_costo_unitario, v_nuevo_stock);
+            OPEN c_insumo(clave.id_articulo);
+            CLOSE c_insumo;
+        END IF;
+    END LOOP;
+
+    -- Las escrituras conservan el orden recibido, incluso para un insumo repetido.
+    FOR i IN 0 .. v_lineas.COUNT - 1 LOOP
+        v_linea := v_lineas(i);
+        IF v_linea.tipo = 'PRODUCTO' THEN
+            SAB_ABASTECER_CORE(p_actor_id, v_linea.id_articulo, v_linea.id_proveedor,
+                               v_linea.cantidad, v_linea.costo_unitario, v_id_abastec);
+        ELSE
+            SAB_ABASTECER_INSUMO_CORE(p_actor_id, v_linea.id_articulo, v_linea.id_proveedor,
+                                      v_linea.cantidad, v_linea.costo_unitario, v_nuevo_stock);
         END IF;
 
         p_cantidad_lineas := p_cantidad_lineas + 1;
-        p_total_compra := p_total_compra + (v_cantidad * v_costo_unitario);
+        p_total_compra := p_total_compra + (v_linea.cantidad * v_linea.costo_unitario);
     END LOOP;
 
     p_total_compra := ROUND(p_total_compra, 2);
     COMMIT;
 EXCEPTION
     WHEN OTHERS THEN
+        IF c_producto%ISOPEN THEN CLOSE c_producto; END IF;
+        IF c_insumo%ISOPEN THEN CLOSE c_insumo; END IF;
         ROLLBACK;
         p_cantidad_lineas := 0;
         p_total_compra := 0;

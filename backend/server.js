@@ -48,6 +48,7 @@ app.use("/api/compras", comprasRoutes);
 app.use("/api/inventario", inventarioRoutes);
 app.use("/api/ventas", ventasRoutes);
 app.use("/api/vendedores", vendedoresRoutes);
+app.use("/api/mantenedores", require("./src/routes/mantenedores.routes"));
 app.use("/api/reportes", reportesRoutes);
 app.use("/api/inicio", require("./src/routes/inicio.routes"));
 app.use("/api/productos-imagenes", imagenesProductosRoutes);

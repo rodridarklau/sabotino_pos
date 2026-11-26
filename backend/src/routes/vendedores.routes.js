@@ -2,6 +2,7 @@ const express = require("express");
 const { consultarProcedimiento } = require("../config/procedimientos");
 const argon2 = require("argon2");
 const { autorizar, buscarCajaPrincipal, fallo, idValido, procedimiento, salida } = require("../services/caja-ventas");
+const { responderErrorMantenedor } = require("../services/mantenedores");
 
 const router = express.Router();
 const dias = ["LUNES", "MARTES", "MIERCOLES", "JUEVES", "VIERNES", "SABADO", "DOMINGO"];
@@ -105,6 +106,21 @@ function guardarHorario(req, res) {
 
 router.post("/", guardarUsuario);
 router.put("/:id", guardarUsuario);
+router.delete("/:id", (req, res) => gestionar(req, res, async (c, actorId) => {
+  const id = Number(req.params.id);
+  if (!idValido(id)) return fallo(res, 400, "Vendedor inválido");
+  const [vendedor] = await consultarProcedimiento(c, "SAB_API_VENDEDOR_ROL", { actorId, id });
+  if (!vendedor) return fallo(res, 404, "Vendedor no encontrado");
+  try {
+    await procedimiento(c, "SAB_D_USUARIO", { actorId, id });
+    res.json({ id });
+  } catch (error) {
+    responderErrorMantenedor(res, error, {
+      20016: "Vendedor no encontrado",
+      2292: "No se puede eliminar el vendedor porque tiene horarios, ventas, turnos u otros registros asociados"
+    });
+  }
+}, true));
 router.post("/horarios", guardarHorario);
 router.put("/horarios/:id", guardarHorario);
 router.delete("/horarios/:id", (req, res) => gestionar(req, res, async (c, actorId) => {

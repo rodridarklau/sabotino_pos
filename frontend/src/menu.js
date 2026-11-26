@@ -12,6 +12,7 @@
     ["proveedores", "Proveedores", "M3 5h12v12H3z M15 9h4l2 4v4h-6 M7 19h.01 M18 19h.01", true]
   ]],
   ["Administración", [
+    ["mantenedores", "Catálogos y terminales", "M4 5h16v4H4z M4 11h16v4H4z M4 17h16v2H4z", true],
     ["vendedores", "Vendedores", "M16 20v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2 M14 8a4 4 0 1 1-8 0 4 4 0 0 1 8 0 M20 20v-2a4 4 0 0 0-2-3", true],
     ["reportes", "Reportes", "M4 4v16h16 M8 16v-4 M12 16V8 M16 16V5", true]
   ]]

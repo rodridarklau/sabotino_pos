@@ -43,6 +43,8 @@ export default function Inventario({ onAjusteRegistrado, busquedaInicial = "", s
   const [guardando, setGuardando] = useBorrador(modulo, "envio-ajuste", false, () => false);
   const [mensaje, setMensaje] = useState("");
   const [alta, setAlta] = useState("");
+  const [errorInsumo, setErrorInsumo] = useState("");
+  const [gestionando, setGestionando] = useBorrador(modulo, "envioGestion", false, () => false);
   const [errorAjuste, setErrorAjuste] = useState("");
   const [revision, setRevision] = useState(0);
   const [pagina, setPagina] = useState(1);
@@ -180,7 +182,48 @@ export default function Inventario({ onAjusteRegistrado, busquedaInicial = "", s
     void onAjusteRegistrado();
   }
 
-  const bloqueado = guardando || Boolean(confirmacion);
+  async function editarInsumo(id) {
+    setGestionando(true);
+    setAlta("");
+    setErrorInsumo("");
+    try {
+      const { insumo } = await consultar(`/insumos/${id}`);
+      cambiarBorrador({
+        id, nombre: insumo.NOMBRE_INSUMO, unidadId: String(insumo.ID_UNIDAD), proveedorId: String(insumo.ID_PROVEEDOR),
+        costo: String(insumo.COSTO_UNITARIO), stockCritico: String(insumo.STOCK_CRITICO), estado: insumo.ESTADO_ACTIVO
+      });
+    } catch (error) {
+      setErrorInsumo(error.message);
+    } finally {
+      setGestionando(false);
+    }
+  }
+
+  async function eliminarInsumo(articulo) {
+    if (gestionando || !window.confirm(`¿Eliminar "${articulo.nombre}"?`)) return;
+    setGestionando(true);
+    setAlta("");
+    setErrorInsumo("");
+    try {
+      const respuesta = await fetch(`${api}/insumos/${articulo.id}`, { method: "DELETE" });
+      const datos = await respuesta.json();
+      if (!respuesta.ok) {
+        setErrorInsumo(datos.mensaje);
+        if (datos.estado === "INCIERTO") actualizar();
+        return;
+      }
+      if (formulario.clave === articulo.clave) setFormulario(formularioVacio);
+      setAlta("Insumo eliminado.");
+      actualizar();
+    } catch {
+      setErrorInsumo("No se pudo confirmar la eliminación. Revisa las existencias antes de volver a intentarlo.");
+      actualizar();
+    } finally {
+      setGestionando(false);
+    }
+  }
+
+  const bloqueado = guardando || gestionando || Boolean(confirmacion);
 
   return (
     <div className={`inventario modulo ${soloInsumos ? "inventario-insumos" : "inventario-general"}`}>
@@ -190,15 +233,17 @@ export default function Inventario({ onAjusteRegistrado, busquedaInicial = "", s
           disabled={bloqueado || cargandoCatalogo || (!soloInsumos && cargandoHistorial)}>Actualizar</button>
         {soloInsumos && !borradorInsumo && <button type="button" disabled={bloqueado} onClick={() => {
           setAlta("");
+          setErrorInsumo("");
           cambiarBorrador({ nombre: "", unidadId: "", proveedorId: "", costo: "0", stockInicial: "0", stockCritico: "0", estado: "S" });
         }}>+ Nuevo insumo</button>}
       </CabeceraModulo>
 
       {soloInsumos && alta && <p className="mensaje-exito" role="status">{alta}</p>}
+      {soloInsumos && errorInsumo && <p className="error" role="alert">{errorInsumo}</p>}
       {soloInsumos && borradorInsumo && <NuevoInsumo datos={borradorInsumo} cambiar={cambiarBorrador}
         cancelar={() => cambiarBorrador(null)} crearProveedor={crearProveedor} revisarExistencias={actualizar}
         alGuardar={(id) => {
-          setAlta(`Insumo registrado correctamente (ID ${id}).`);
+          setAlta(`Insumo ${borradorInsumo.id === undefined ? "registrado" : "actualizado"} correctamente (ID ${id}).`);
           setBusqueda(borradorInsumo.nombre.trim());
           cambiarBorrador(null);
           actualizar();
@@ -226,7 +271,7 @@ export default function Inventario({ onAjusteRegistrado, busquedaInicial = "", s
         {!cargandoCatalogo && catalogo?.error && <p role="alert" className="error">{catalogo.error}</p>}
         <div className="tabla-contenedor" tabIndex={0} role="region" aria-label="Existencias">
           <table aria-label={soloInsumos ? "Existencias de insumos" : "Existencias de artículos activos"}>
-            <thead><tr><th>Artículo</th><th>Tipo</th><th>Unidad</th><th>Stock actual</th><th>Stock crítico</th><th>Ajuste</th></tr></thead>
+            <thead><tr><th>Artículo</th><th>Tipo</th><th>Unidad</th><th>Stock actual</th><th>Stock crítico</th><th>{soloInsumos ? "Acciones" : "Ajuste"}</th></tr></thead>
             <tbody>
               {visibles.map((articulo) => (
                 <tr key={articulo.clave}>
@@ -238,12 +283,20 @@ export default function Inventario({ onAjusteRegistrado, busquedaInicial = "", s
                     {articulo.ESTADO_ACTIVO !== "N" && articulo.STOCK_ACTUAL <= articulo.STOCK_CRITICO && <EtiquetaEstado tono="alerta">Stock bajo</EtiquetaEstado>}
                   </td>
                   <td>{formatoCantidad.format(articulo.STOCK_CRITICO)}</td>
-                  <td>{articulo.ESTADO_ACTIVO === "N" ? "—" : <div className="acciones-formulario">
-                    <button type="button" disabled={bloqueado || cargandoCatalogo}
-                      onClick={() => elegirArticulo(articulo, 1)}>Añadir stock</button>
-                    <button className="secundario" type="button" disabled={bloqueado || cargandoCatalogo}
-                      onClick={() => elegirArticulo(articulo, -1)}>Quitar stock</button>
-                  </div>}</td>
+                  <td><div className="acciones-formulario">
+                    {articulo.ESTADO_ACTIVO !== "N" && <>
+                      <button type="button" disabled={bloqueado || cargandoCatalogo}
+                        onClick={() => elegirArticulo(articulo, 1)}>Añadir stock</button>
+                      <button className="secundario" type="button" disabled={bloqueado || cargandoCatalogo}
+                        onClick={() => elegirArticulo(articulo, -1)}>Quitar stock</button>
+                    </>}
+                    {soloInsumos && <>
+                      <button className="secundario" type="button" disabled={bloqueado || cargandoCatalogo || Boolean(borradorInsumo)}
+                        onClick={() => editarInsumo(articulo.id)}>Editar</button>
+                      <button className="peligro" type="button" disabled={bloqueado || cargandoCatalogo || Boolean(borradorInsumo)}
+                        onClick={() => eliminarInsumo(articulo)}>Eliminar</button>
+                    </>}
+                  </div></td>
                 </tr>
               ))}
             </tbody>

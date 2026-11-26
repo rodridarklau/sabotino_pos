@@ -1,4 +1,5 @@
 const express = require("express");
+const { responderErrorMantenedor } = require("../services/mantenedores");
 const { obtenerConexion } = require("../config/database");
 const { consultarProcedimiento, ejecutarProcedimiento, entradaClob, numeroSalida } = require("../config/procedimientos");
 
@@ -309,6 +310,24 @@ router.put("/proveedores/:id", async (req, res) => {
           : "No se pudo actualizar el proveedor"
     });
 
+  } finally {
+    if (conexion) await conexion.close();
+  }
+});
+
+router.delete("/proveedores/:id", async (req, res) => {
+  const id = Number(req.params.id);
+  if (!enteroPositivo(id)) return res.status(400).json({ estado: "ERROR", mensaje: "Proveedor inválido" });
+  let conexion;
+  try {
+    conexion = await obtenerConexion();
+    await ejecutarProcedimiento(conexion, "SAB_D_PROVEEDOR", { actorId: req.session.usuario.id, id });
+    res.json({ estado: "OK", idProveedor: id });
+  } catch (error) {
+    responderErrorMantenedor(res, error, {
+      20016: "El proveedor no existe",
+      2292: "No se puede eliminar el proveedor porque tiene compras o insumos asociados"
+    });
   } finally {
     if (conexion) await conexion.close();
   }

@@ -111,9 +111,11 @@ CREATE OR REPLACE PROCEDURE SAB_D_USUARIO(p_actor_id NUMBER, p_id NUMBER) IS
 BEGIN
     SAB_VALIDAR_DUENO(p_actor_id);
     IF p_id = p_actor_id THEN RAISE_APPLICATION_ERROR(-20015, 'No eliminar su propio usuario'); END IF;
-    DELETE FROM USUARIO WHERE id_usuario = p_id;
+    DELETE FROM USUARIO
+    WHERE id_usuario = p_id
+      AND id_rol IN (SELECT id_rol FROM ROL_USUARIO WHERE nombre_rol = 'VENDEDOR');
     IF SQL%ROWCOUNT = 0 THEN
-        RAISE_APPLICATION_ERROR(-20016, 'Registro no encontrado en USUARIO');
+        RAISE_APPLICATION_ERROR(-20016, 'Vendedor no encontrado');
     END IF;
     COMMIT;
 EXCEPTION WHEN OTHERS THEN ROLLBACK; RAISE;
@@ -132,7 +134,8 @@ CREATE OR REPLACE PROCEDURE SAB_C_INSUMO(
     p_estado_activo CHAR DEFAULT 'S',
     p_nuevo_id OUT NUMBER
 ) IS
-    CURSOR c_uni IS SELECT permite_decimales FROM UNIDAD_MEDIDA WHERE id_unidad = p_id_unidad;
+    CURSOR c_uni IS
+        SELECT permite_decimales FROM UNIDAD_MEDIDA WHERE id_unidad = p_id_unidad FOR UPDATE;
     CURSOR c_prov IS SELECT id_proveedor FROM PROVEEDOR WHERE id_proveedor = p_id_proveedor;
     v_permite_dec CHAR(1);
     v_tmp NUMBER;
@@ -208,16 +211,21 @@ CREATE OR REPLACE PROCEDURE SAB_U_INSUMO(
     p_stock_critico NUMBER,
     p_estado_activo CHAR
 ) IS
-    CURSOR c_uni IS SELECT permite_decimales FROM UNIDAD_MEDIDA WHERE id_unidad = p_id_unidad;
+    CURSOR c_uni IS
+        SELECT permite_decimales FROM UNIDAD_MEDIDA WHERE id_unidad = p_id_unidad FOR UPDATE;
     CURSOR c_prov IS SELECT id_proveedor FROM PROVEEDOR WHERE id_proveedor = p_id_proveedor;
+    CURSOR c_actual IS
+        SELECT stock_actual, id_unidad FROM INSUMO WHERE id_insumo = p_id FOR UPDATE;
     v_permite_dec CHAR(1);
     v_tmp NUMBER;
+    v_stock NUMBER;
+    v_unidad NUMBER;
 BEGIN
     SAB_VALIDAR_DUENO(p_actor_id);
     IF p_costo_unitario IS NULL OR p_costo_unitario < 0 OR p_costo_unitario <> ROUND(p_costo_unitario, 2) THEN
         RAISE_APPLICATION_ERROR(-20544, 'Costo unitario invalido');
     END IF;
-    IF p_stock_actual IS NULL OR p_stock_actual < 0 OR p_stock_actual <> ROUND(p_stock_actual, 3)
+    IF p_stock_actual < 0 OR p_stock_actual <> ROUND(p_stock_actual, 3)
        OR p_stock_critico IS NULL OR p_stock_critico < 0 OR p_stock_critico <> ROUND(p_stock_critico, 3) THEN
         RAISE_APPLICATION_ERROR(-20545, 'Stock actual o critico invalido');
     END IF;
@@ -227,29 +235,42 @@ BEGIN
         RAISE_APPLICATION_ERROR(-20540, 'Unidad de medida no existe');
     END IF;
     CLOSE c_uni;
-    IF v_permite_dec = 'N' AND (p_stock_actual <> TRUNC(p_stock_actual) OR p_stock_critico <> TRUNC(p_stock_critico)) THEN
-        RAISE_APPLICATION_ERROR(-20546, 'La unidad seleccionada no permite decimales en stock');
-    END IF;
     OPEN c_prov; FETCH c_prov INTO v_tmp;
     IF c_prov%NOTFOUND THEN
         CLOSE c_prov;
         RAISE_APPLICATION_ERROR(-20541, 'Proveedor no existe');
     END IF;
     CLOSE c_prov;
+    OPEN c_actual; FETCH c_actual INTO v_stock, v_unidad;
+    IF c_actual%NOTFOUND THEN
+        RAISE_APPLICATION_ERROR(-20542, 'Registro no encontrado en INSUMO');
+    END IF;
+    CLOSE c_actual;
+    -- La ficha web envía NULL para conservar las existencias bajo bloqueo.
+    IF p_stock_actual IS NULL AND v_stock <> 0 AND p_id_unidad <> v_unidad THEN
+        RAISE_APPLICATION_ERROR(-20558, 'No cambiar la unidad de un insumo con existencias');
+    END IF;
+    v_stock := NVL(p_stock_actual, v_stock);
+    IF v_permite_dec = 'N' AND (v_stock <> TRUNC(v_stock) OR p_stock_critico <> TRUNC(p_stock_critico)) THEN
+        RAISE_APPLICATION_ERROR(-20546, 'La unidad seleccionada no permite decimales en stock');
+    END IF;
     UPDATE INSUMO SET
         id_unidad = p_id_unidad,
         id_proveedor = p_id_proveedor,
         nombre_insumo = TRIM(p_nombre_insumo),
         costo_unitario = p_costo_unitario,
-        stock_actual = p_stock_actual,
+        stock_actual = v_stock,
         stock_critico = p_stock_critico,
         estado_activo = p_estado_activo
     WHERE id_insumo = p_id;
-    IF SQL%ROWCOUNT = 0 THEN
-        RAISE_APPLICATION_ERROR(-20542, 'Registro no encontrado en INSUMO');
-    END IF;
     COMMIT;
-EXCEPTION WHEN OTHERS THEN ROLLBACK; RAISE;
+EXCEPTION
+    WHEN OTHERS THEN
+        IF c_actual%ISOPEN THEN CLOSE c_actual; END IF;
+        IF c_uni%ISOPEN THEN CLOSE c_uni; END IF;
+        IF c_prov%ISOPEN THEN CLOSE c_prov; END IF;
+        ROLLBACK;
+        RAISE;
 END;
 /
 
@@ -282,7 +303,11 @@ CREATE OR REPLACE PROCEDURE SAB_C_HORARIO_VENDEDOR(
     v_dia VARCHAR2(15) := UPPER(TRIM(p_dia_semana));
     v_ini VARCHAR2(5) := TRIM(p_hora_inicio);
     v_fin VARCHAR2(5) := TRIM(p_hora_fin);
-    CURSOR c_usr IS SELECT estado_usuario FROM USUARIO WHERE id_usuario = p_id_usuario;
+    CURSOR c_usr IS
+        SELECT u.estado_usuario FROM USUARIO u
+        JOIN ROL_USUARIO r ON r.id_rol = u.id_rol
+        WHERE u.id_usuario = p_id_usuario AND r.nombre_rol = 'VENDEDOR' AND r.estado_activo = 'S'
+        FOR UPDATE OF u.estado_usuario;
     CURSOR c_caja IS SELECT estado_operativo FROM CAJA_TERMINAL WHERE id_caja = p_id_caja;
     CURSOR c_solape IS
         SELECT id_horario FROM HORARIO_VENDEDOR
@@ -364,7 +389,11 @@ CREATE OR REPLACE PROCEDURE SAB_U_HORARIO_VENDEDOR(
     v_dia VARCHAR2(15) := UPPER(TRIM(p_dia_semana));
     v_ini VARCHAR2(5) := TRIM(p_hora_inicio);
     v_fin VARCHAR2(5) := TRIM(p_hora_fin);
-    CURSOR c_usr IS SELECT estado_usuario FROM USUARIO WHERE id_usuario = p_id_usuario;
+    CURSOR c_usr IS
+        SELECT u.estado_usuario FROM USUARIO u
+        JOIN ROL_USUARIO r ON r.id_rol = u.id_rol
+        WHERE u.id_usuario = p_id_usuario AND r.nombre_rol = 'VENDEDOR' AND r.estado_activo = 'S'
+        FOR UPDATE OF u.estado_usuario;
     CURSOR c_caja IS SELECT estado_operativo FROM CAJA_TERMINAL WHERE id_caja = p_id_caja;
     CURSOR c_solape IS
         SELECT id_horario FROM HORARIO_VENDEDOR
@@ -442,6 +471,10 @@ CREATE OR REPLACE PROCEDURE SAB_C_CAJA_TERMINAL(
 ) IS
 BEGIN
     SAB_VALIDAR_DUENO(p_actor_id);
+    IF UPPER(TRIM(p_nombre_caja)) = 'MAIN'
+       AND (p_nombre_caja <> 'MAIN' OR p_estado_operativo <> 'S') THEN
+        RAISE_APPLICATION_ERROR(-20555, 'La Caja Principal usa el nombre MAIN y debe estar operativa');
+    END IF;
     INSERT INTO CAJA_TERMINAL (id_caja, nombre_caja, ubicacion, estado_operativo)
     VALUES (SEQ_CAJA_TERMINAL.NEXTVAL, p_nombre_caja, p_ubicacion, p_estado_operativo)
     RETURNING id_caja INTO p_nuevo_id;
@@ -473,16 +506,37 @@ CREATE OR REPLACE PROCEDURE SAB_U_CAJA_TERMINAL(
     p_ubicacion VARCHAR2,
     p_estado_operativo CHAR
 ) IS
+    CURSOR c_caja IS
+        SELECT nombre_caja FROM CAJA_TERMINAL WHERE id_caja = p_id FOR UPDATE;
+    v_nombre CAJA_TERMINAL.NOMBRE_CAJA%TYPE;
+    v_turnos_abiertos NUMBER;
 BEGIN
     SAB_VALIDAR_DUENO(p_actor_id);
+    OPEN c_caja; FETCH c_caja INTO v_nombre;
+    IF c_caja%NOTFOUND THEN
+        RAISE_APPLICATION_ERROR(-20013, 'Registro no encontrado en CAJA_TERMINAL');
+    END IF;
+    CLOSE c_caja;
+    IF (v_nombre = 'MAIN' AND (p_nombre_caja <> 'MAIN' OR p_estado_operativo <> 'S'))
+       OR (v_nombre <> 'MAIN' AND UPPER(TRIM(p_nombre_caja)) = 'MAIN') THEN
+        RAISE_APPLICATION_ERROR(-20555, 'No se puede renombrar ni desactivar la Caja Principal');
+    END IF;
+    IF p_estado_operativo = 'N' THEN
+        SELECT COUNT(*) INTO v_turnos_abiertos FROM TURNO_CAJA
+        WHERE id_caja = p_id AND estado_turno = 'ABIERTO';
+        IF v_turnos_abiertos > 0 THEN
+            RAISE_APPLICATION_ERROR(-20556, 'Cierra el turno abierto antes de desactivar la caja');
+        END IF;
+    END IF;
     UPDATE CAJA_TERMINAL SET
         nombre_caja = p_nombre_caja, ubicacion = p_ubicacion, estado_operativo = p_estado_operativo
     WHERE id_caja = p_id;
-    IF SQL%ROWCOUNT = 0 THEN
-        RAISE_APPLICATION_ERROR(-20013, 'Registro no encontrado en CAJA_TERMINAL');
-    END IF;
     COMMIT;
-EXCEPTION WHEN OTHERS THEN ROLLBACK; RAISE;
+EXCEPTION
+    WHEN OTHERS THEN
+        IF c_caja%ISOPEN THEN CLOSE c_caja; END IF;
+        ROLLBACK;
+        RAISE;
 END;
 /
 
@@ -490,10 +544,15 @@ END;
 eliminar una caja del local mediante su identificador. Comprueba que exista y
 las restricciones de la base impiden borrar datos con referencias protegidas. */
 CREATE OR REPLACE PROCEDURE SAB_D_CAJA_TERMINAL(p_actor_id NUMBER, p_id NUMBER) IS
+    v_principal NUMBER;
 BEGIN
     SAB_VALIDAR_DUENO(p_actor_id);
-    DELETE FROM CAJA_TERMINAL WHERE id_caja = p_id;
+    DELETE FROM CAJA_TERMINAL WHERE id_caja = p_id AND nombre_caja <> 'MAIN';
     IF SQL%ROWCOUNT = 0 THEN
+        SELECT COUNT(*) INTO v_principal FROM CAJA_TERMINAL WHERE id_caja = p_id AND nombre_caja = 'MAIN';
+        IF v_principal > 0 THEN
+            RAISE_APPLICATION_ERROR(-20555, 'No se puede eliminar la Caja Principal');
+        END IF;
         RAISE_APPLICATION_ERROR(-20016, 'Registro no encontrado en CAJA_TERMINAL');
     END IF;
     COMMIT;
@@ -626,16 +685,35 @@ CREATE OR REPLACE PROCEDURE SAB_U_UNIDAD_MEDIDA(
     p_nombre_unidad VARCHAR2,
     p_permite_decimales CHAR
 ) IS
+    CURSOR c_unidad IS
+        SELECT permite_decimales FROM UNIDAD_MEDIDA WHERE id_unidad = p_id FOR UPDATE;
+    v_decimales UNIDAD_MEDIDA.PERMITE_DECIMALES%TYPE;
+    v_en_uso NUMBER;
 BEGIN
     SAB_VALIDAR_DUENO(p_actor_id);
+    OPEN c_unidad; FETCH c_unidad INTO v_decimales;
+    IF c_unidad%NOTFOUND THEN
+        RAISE_APPLICATION_ERROR(-20013, 'Registro no encontrado en UNIDAD_MEDIDA');
+    END IF;
+    CLOSE c_unidad;
+    -- Las altas y cambios de unidad de artículos usan el mismo bloqueo.
+    IF v_decimales <> p_permite_decimales THEN
+        SELECT COUNT(*) INTO v_en_uso FROM DUAL
+        WHERE EXISTS (SELECT 1 FROM PRODUCTO WHERE id_unidad = p_id)
+           OR EXISTS (SELECT 1 FROM INSUMO WHERE id_unidad = p_id);
+        IF v_en_uso > 0 THEN
+            RAISE_APPLICATION_ERROR(-20557, 'No se puede cambiar la regla de decimales de una unidad en uso');
+        END IF;
+    END IF;
     UPDATE UNIDAD_MEDIDA SET
         codigo_unidad = p_codigo_unidad, nombre_unidad = p_nombre_unidad, permite_decimales = p_permite_decimales
     WHERE id_unidad = p_id;
-    IF SQL%ROWCOUNT = 0 THEN
-        RAISE_APPLICATION_ERROR(-20013, 'Registro no encontrado en UNIDAD_MEDIDA');
-    END IF;
     COMMIT;
-EXCEPTION WHEN OTHERS THEN ROLLBACK; RAISE;
+EXCEPTION
+    WHEN OTHERS THEN
+        IF c_unidad%ISOPEN THEN CLOSE c_unidad; END IF;
+        ROLLBACK;
+        RAISE;
 END;
 /
 
@@ -739,15 +817,22 @@ CREATE OR REPLACE PROCEDURE SAB_C_PRODUCTO(
     p_estado_producto CHAR,
     p_nuevo_id OUT NUMBER
 ) IS
+    CURSOR c_unidad IS SELECT id_unidad FROM UNIDAD_MEDIDA WHERE id_unidad = p_id_unidad FOR UPDATE;
 BEGIN
     SAB_VALIDAR_DUENO(p_actor_id);
+    OPEN c_unidad;
+    CLOSE c_unidad;
     INSERT INTO PRODUCTO (id_producto, id_categoria, id_unidad, id_marca, codigo_barra, nombre_producto, costo_produccion_actual, precio_venta_actual, stock_actual, stock_critico, estado_producto)
     VALUES (SEQ_PRODUCTO.NEXTVAL, p_id_categoria, p_id_unidad, p_id_marca, p_codigo_barra, p_nombre_producto, p_costo_produccion_actual, p_precio_venta_actual, 0, p_stock_critico, p_estado_producto)
     RETURNING id_producto INTO p_nuevo_id;
     SAB_LOG_CAMBIO_PRODUCTO(p_actor_id, p_nuevo_id, 'CREACION',
         NULL, p_costo_produccion_actual, NULL, p_precio_venta_actual, NULL, 0);
     COMMIT;
-EXCEPTION WHEN OTHERS THEN ROLLBACK; RAISE;
+EXCEPTION
+    WHEN OTHERS THEN
+        IF c_unidad%ISOPEN THEN CLOSE c_unidad; END IF;
+        ROLLBACK;
+        RAISE;
 END;
 /
 
@@ -782,6 +867,7 @@ CREATE OR REPLACE PROCEDURE SAB_U_PRODUCTO(
 ) IS
     CURSOR c_actual IS SELECT costo_produccion_actual, precio_venta_actual, stock_actual, id_unidad
                           FROM PRODUCTO WHERE id_producto = p_id FOR UPDATE;
+    CURSOR c_unidad IS SELECT id_unidad FROM UNIDAD_MEDIDA WHERE id_unidad = p_id_unidad FOR UPDATE;
     v_anterior c_actual%ROWTYPE;
     v_vinculos NUMBER;
 BEGIN
@@ -801,6 +887,8 @@ BEGIN
         IF v_vinculos > 0 OR v_anterior.stock_actual <> 0 THEN
             RAISE_APPLICATION_ERROR(-20012, 'No cambiar unidad con movimientos de stock/historial');
         END IF;
+        OPEN c_unidad;
+        CLOSE c_unidad;
     END IF;
     UPDATE PRODUCTO SET
         id_categoria = p_id_categoria, id_unidad = p_id_unidad, id_marca = p_id_marca, codigo_barra = p_codigo_barra, nombre_producto = p_nombre_producto, costo_produccion_actual = p_costo_produccion_actual, precio_venta_actual = p_precio_venta_actual, stock_critico = p_stock_critico, estado_producto = p_estado_producto
@@ -810,7 +898,12 @@ BEGIN
         v_anterior.precio_venta_actual, p_precio_venta_actual,
         v_anterior.stock_actual, v_anterior.stock_actual);
     COMMIT;
-EXCEPTION WHEN OTHERS THEN ROLLBACK; RAISE;
+EXCEPTION
+    WHEN OTHERS THEN
+        IF c_actual%ISOPEN THEN CLOSE c_actual; END IF;
+        IF c_unidad%ISOPEN THEN CLOSE c_unidad; END IF;
+        ROLLBACK;
+        RAISE;
 END;
 /
 

@@ -167,6 +167,30 @@ export default function Proveedores({ onVolver, inicioEnAlta = false, alCrear })
     }
   }
 
+  async function eliminarProveedor(proveedor) {
+    if (guardando || !window.confirm(`¿Eliminar "${proveedor.RAZON_SOCIAL}"?`)) return;
+    setGuardando(true);
+    setError("");
+    setMensaje("");
+    try {
+      const respuesta = await fetch(`${API}/${proveedor.ID_PROVEEDOR}`, { method: "DELETE" });
+      const datos = await respuesta.json();
+      if (!respuesta.ok) {
+        if (datos.estado === "INCIERTO") await consultarProveedores();
+        setError(datos.mensaje);
+        return;
+      }
+      if (proveedorVisible?.ID_PROVEEDOR === proveedor.ID_PROVEEDOR) setProveedorVisible(null);
+      setMensaje("Proveedor eliminado.");
+      await cargarProveedores();
+    } catch {
+      await consultarProveedores();
+      setError("No se pudo confirmar la eliminación. Revisa el listado antes de volver a intentarlo.");
+    } finally {
+      setGuardando(false);
+    }
+  }
+
   const proveedoresFiltrados = proveedores.filter((proveedor) => {
     const texto = busqueda.toLowerCase();
 
@@ -359,10 +383,13 @@ export default function Proveedores({ onVolver, inicioEnAlta = false, alCrear })
                     <button
                       type="button"
                       className="secundario"
+                      disabled={guardando}
                       onClick={() => abrirEdicion(proveedor)}
                     >
                       Editar
                     </button>
+                    <button type="button" className="peligro" disabled={guardando || mostrarFormulario}
+                      onClick={() => eliminarProveedor(proveedor)}>Eliminar</button>
                     <button type="button" className="secundario" aria-expanded={proveedorVisible?.ID_PROVEEDOR === proveedor.ID_PROVEEDOR}
                       onClick={() => {
                         setProveedorVisible(proveedorVisible?.ID_PROVEEDOR === proveedor.ID_PROVEEDOR ? null : proveedor);

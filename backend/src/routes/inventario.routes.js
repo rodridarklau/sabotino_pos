@@ -1,6 +1,7 @@
 const express = require("express");
 const { consultarProcedimiento, ejecutarProcedimiento, numeroSalida } = require("../config/procedimientos");
 const { obtenerConexion } = require("../config/database");
+const { responderErrorMantenedor } = require("../services/mantenedores");
 
 const router = express.Router();
 const maximoMilesimas = 999999999999;
@@ -152,6 +153,63 @@ router.post("/insumos", async (req, res) => {
   } finally {
     await cerrarConexion(conexion);
     altasEnCurso.delete(actorId);
+  }
+});
+
+router.get("/insumos/:id", async (req, res) => {
+  const id = Number(req.params.id);
+  if (!esId(id)) return responderError(res, 400, "Insumo inválido");
+  let conexion;
+  try {
+    conexion = await obtenerConexion();
+    const insumos = await consultarProcedimiento(conexion, "SAB_L_INSUMO", { actorId: req.session.usuario.id });
+    const insumo = insumos.find((fila) => fila.ID_INSUMO === id);
+    if (!insumo) return responderError(res, 404, "El insumo no existe");
+    res.json({ insumo });
+  } catch (error) {
+    responderErrorMantenedor(res, error);
+  } finally {
+    await cerrarConexion(conexion);
+  }
+});
+
+router.put("/insumos/:id", async (req, res) => {
+  const id = Number(req.params.id);
+  const { unidadId, proveedorId, nombre, costo, stockCritico, estado } = req.body ?? {};
+  if (!esId(id) || !esId(unidadId) || !esId(proveedorId) || typeof nombre !== "string" ||
+      !nombre.trim() || Buffer.byteLength(nombre.trim()) > 100 ||
+      !decimalValido(costo, 100) || costo > 999999999999.99 ||
+      !decimalValido(stockCritico, 1000) || Math.round(stockCritico * 1000) > maximoMilesimas ||
+      !["S", "N"].includes(estado)) {
+    return responderError(res, 400, "Revisa los datos del insumo");
+  }
+  let conexion;
+  try {
+    conexion = await obtenerConexion();
+    await ejecutarProcedimiento(conexion, "SAB_U_INSUMO", {
+      actorId: req.session.usuario.id, id, unidadId, proveedorId, nombre: nombre.trim(),
+      costo, stockActual: null, stockCritico, estado
+    });
+    res.json({ estado: "OK", idInsumo: id });
+  } catch (error) {
+    responderErrorMantenedor(res, error, { 1: "Ya existe un insumo con ese nombre" });
+  } finally {
+    await cerrarConexion(conexion);
+  }
+});
+
+router.delete("/insumos/:id", async (req, res) => {
+  const id = Number(req.params.id);
+  if (!esId(id)) return responderError(res, 400, "Insumo inválido");
+  let conexion;
+  try {
+    conexion = await obtenerConexion();
+    await ejecutarProcedimiento(conexion, "SAB_D_INSUMO", { actorId: req.session.usuario.id, id });
+    res.json({ estado: "OK", idInsumo: id });
+  } catch (error) {
+    responderErrorMantenedor(res, error, { 2292: "No se puede eliminar el insumo porque tiene registros asociados" });
+  } finally {
+    await cerrarConexion(conexion);
   }
 });
 

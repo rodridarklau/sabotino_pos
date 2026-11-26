@@ -85,18 +85,27 @@ DECLARE
     'SAB_API_VERSION_SESION'
   );
   l_validos PLS_INTEGER := 0;
+  l_invalidos_base PLS_INTEGER := 0;
 BEGIN
   FOR objeto IN (
-    SELECT esperado.COLUMN_VALUE AS NOMBRE, NVL(o.STATUS, 'AUSENTE') AS ESTADO
+    SELECT esperado.COLUMN_VALUE AS NOMBRE, NVL(o.STATUS, 'AUSENTE') AS ESTADO, 0 AS ES_BASE
     FROM TABLE(l_esperados) esperado
     LEFT JOIN USER_OBJECTS o
       ON o.OBJECT_NAME = esperado.COLUMN_VALUE
       AND o.OBJECT_TYPE = 'PROCEDURE'
-    ORDER BY esperado.COLUMN_VALUE
+    UNION ALL
+    SELECT OBJECT_NAME, STATUS, 1 FROM USER_OBJECTS
+    WHERE OBJECT_TYPE = 'PROCEDURE' AND STATUS <> 'VALID'
+      AND SUBSTR(OBJECT_NAME, 1, 4) = 'SAB_'
+      AND OBJECT_NAME NOT IN (SELECT COLUMN_VALUE FROM TABLE(l_esperados))
+    ORDER BY 1
   ) LOOP
     IF objeto.ESTADO = 'VALID' THEN
       l_validos := l_validos + 1;
     ELSE
+      IF objeto.ES_BASE = 1 THEN
+        l_invalidos_base := l_invalidos_base + 1;
+      END IF;
       DBMS_OUTPUT.PUT_LINE(objeto.NOMBRE || ': ' || objeto.ESTADO);
       FOR error IN (
         SELECT LINE, POSITION, TEXT
@@ -110,6 +119,9 @@ BEGIN
   END LOOP;
   IF l_validos <> 79 THEN
     RAISE_APPLICATION_ERROR(-20790, 'Procedimientos de la API v?lidos: ' || l_validos || ' de 79');
+  END IF;
+  IF l_invalidos_base > 0 THEN
+    RAISE_APPLICATION_ERROR(-20794, 'Procedimientos base inválidos: ' || l_invalidos_base);
   END IF;
   DBMS_OUTPUT.PUT_LINE('Procedimientos de la API: 79 de 79 VALID.');
 END;
