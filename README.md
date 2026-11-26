@@ -87,7 +87,7 @@ cd docs/oracle
 sqlplus 'SABOTINO@localhost:1521/XEPDB1' '@instalar_desde_cero.sql'
 ```
 
-Al terminar, debe aparecer `Procedimientos de la API: 79 de 79 VALID.`. Si el esquema ya tiene las tablas y procedimientos base, ejecuta el [instalador de la migración](docs/oracle/migracion-procedimientos/instalar.sql) desde su carpeta. La [guía de Oracle](docs/oracle/README.md) describe ambas opciones.
+Al terminar, debe aparecer `Total SABOTINO: 149 procedimientos VALID (70 base + 79 API).` Si el esquema ya contiene una instalación anterior, sigue la guía para revisar sus dependencias y ejecutar el instalador incremental. [Guía de actualización](docs/oracle/RETIRO_5_PROCEDIMIENTOS.md)
 
 ### Iniciar la aplicación
 
@@ -138,7 +138,7 @@ npm run lint
 npm run build
 ```
 
-La [auditoría ES3](docs/AUDITORIA_ES3_INF324.md) documenta el cumplimiento de la rúbrica. El [inventario de Oracle](docs/oracle/inventario_procedimientos.csv) identifica los 154 procedimientos y su uso.
+La auditoría ES3 documenta el cumplimiento de la rúbrica. El inventario de Oracle identifica los 149 procedimientos vigentes y su uso. [Auditoría ES3](docs/AUDITORIA_ES3_INF324.md) · [Inventario de Oracle](docs/oracle/inventario_procedimientos.csv)
 
 ## Estado y alcance
 

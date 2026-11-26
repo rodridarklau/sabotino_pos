@@ -10,9 +10,9 @@ La conexión local de Express usa la cuenta propietaria `SABOTINO` en `XEPDB1`, 
 
 El backend envía todas las operaciones de datos por [la capa de procedimientos](../../backend/src/config/procedimientos.js). La capa toma la conexión de la operación, enlaza los valores, lee las salidas escalares y consume y cierra los cursores antes de que las rutas devuelvan la conexión al pool. Las contraseñas se siguen verificando con Argon2id en Node.js.
 
-Si el esquema ya tiene la base de SABOTINO, ejecutá [el instalador de migración](migracion-procedimientos/instalar.sql) como propietario desde su carpeta. Reinstala los módulos de mantenedores y gestores para aplicar los cambios de bloqueos, y luego instala la API. El [verificador](migracion-procedimientos/verificar.sql) comprueba por nombre los 79 procedimientos de la API y reporta procedimientos base inválidos.
+El instalador incremental actualiza los módulos de mantenedores y gestores, instala la API y comprueba las dependencias antes de retirar los cinco procedimientos sustituidos. El verificador comprueba por nombre los 79 procedimientos de la API y exige un total de 149 procedimientos válidos. [Guía de retiro](RETIRO_5_PROCEDIMIENTOS.md) · [Instalador incremental](migracion-procedimientos/instalar.sql) · [Verificador](migracion-procedimientos/verificar.sql)
 
-Para una base nueva, ejecutá [instalar_desde_cero.sql](instalar_desde_cero.sql) desde la carpeta `docs/oracle` y conectado al esquema vacío. El instalador usa los [módulos base](base/), verifica las 21 tablas, 21 secuencias, 75 procedimientos, dos funciones y ocho triggers iniciales, y luego instala los 79 procedimientos de la API. Los catálogos fijos se cargan antes de habilitar sus triggers. El dueño registra la primera cuenta desde el frontend y crea `MAIN` en la primera apertura. Los scripts provienen de los módulos SQL de SABOTINO y excluyen el registro heredado `CAJA PRINCIPAL` del catálogo inicial. El procedimiento de creación desde cero rechaza esquemas con objetos existentes. Revisá la [guía de inicio](../../README.md) para preparar la cuenta y configurar la conexión.
+Para una base nueva, ejecutá `instalar_desde_cero.sql` desde `docs/oracle` y conectado al esquema vacío. El instalador verifica las 21 tablas, 21 secuencias, 70 procedimientos base, dos funciones y ocho triggers, y luego instala los 79 procedimientos de la API. Los catálogos fijos se cargan antes de habilitar sus triggers. El dueño registra la primera cuenta desde el frontend y crea `MAIN` en la primera apertura. El catálogo inicial excluye el registro heredado `CAJA PRINCIPAL`. El instalador rechaza esquemas con objetos existentes. [Instalador desde cero](instalar_desde_cero.sql) · [Guía de inicio](../../README.md)
 
 | Etapa | Rutinas reutilizadas y adaptación |
 | --- | --- |
@@ -42,7 +42,7 @@ node test-oracle.js
 
 La revisión final verificó la instalación desde un esquema vacío en Oracle XE 21c y la actualización incremental con SQL*Plus. Se probó que el verificador rechaza procedimientos ausentes e inválidos. Pasaron las 53 pruebas con mocks, las consultas de Reportes con datos simulados en Oracle y el flujo HTTP con un dueño y dos vendedores en el esquema creado desde cero. Las llamadas directas a los procedimientos comprobaron el alcance de pagos y detalles de venta, incluidos los borradores, y la visibilidad de los arqueos antes y después de cerrar un turno.
 
-La revisión de cursores documenta las conversiones de edición y baja de productos, las diferencias de los 15 candidatos y las verificaciones de compilación y concurrencia. [Auditoría de cursores](AUDITORIA_CURSORES.md), [inventario de los 154 procedimientos](inventario_procedimientos.csv)
+La auditoría de cursores documenta las conversiones de edición y baja de productos y las diferencias de los 15 candidatos originales. El inventario vigente contiene 149 procedimientos. [Auditoría de cursores](AUDITORIA_CURSORES.md) · [Inventario vigente](inventario_procedimientos.csv)
 
 La revisión ES3 verifica los diez mantenedores desde React y documenta la protección de `MAIN`, los rechazos de claves foráneas y las transacciones. El flujo `node test/flujo-oracle.js` prueba dos conexiones Oracle para Horarios, Compra múltiple y cambios de unidades. Cada compra bloquea productos antes que insumos y usa ID ascendente por tipo. Las escrituras se ejecutan en el orden original del lote. [Informe ES3](../AUDITORIA_ES3_INF324.md), [pruebas de concurrencia](../../backend/test/concurrencia-oracle.js)
 
@@ -102,7 +102,7 @@ Las firmas, reglas y límites de transacción se verificaron por metadatos y lec
 
 ## Ventas y apertura de caja
 
-Ventas está disponible para `DUENO` y `VENDEDOR` activos. Express revalida el usuario y el rol de la sesión. El dueño puede consultar ventas de todos los usuarios y cada vendedor puede consultar únicamente las propias, siguiendo el alcance de `SAB_UI_L_RESUMEN_VENTA`, `SAB_UI_L_DETALLE_VENTA` y `SAB_UI_L_PAGOS_VENTA`. La anulación de recuperación desde la UI está limitada a borradores propios.
+Ventas está disponible para `DUENO` y `VENDEDOR` activos. Express revalida el usuario y el rol de la sesión. El dueño puede consultar ventas de todos los usuarios y cada vendedor puede consultar las propias mediante `SAB_API_VENTA_CABECERA`, `SAB_API_VENTA_DETALLE` y `SAB_API_VENTA_PAGOS`. La anulación de recuperación desde la UI está limitada a borradores propios.
 
 ### Modelo de datos
 

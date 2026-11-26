@@ -1,6 +1,6 @@
 # Auditoría de cursores y uso de procedimientos de SABOTINO
 
-**26 de noviembre de 2026.** La revisión abarcó los 154 procedimientos del SQL modularizado. Se convirtieron las lecturas con bloqueo de edición y baja de productos a cursores explícitos. Los 154 nombres y firmas se conservaron, incluidos los 42 mantenedores de la rúbrica y las 98 salidas `OUT SYS_REFCURSOR`. [Inventario final por procedimiento](inventario_procedimientos.csv)
+**26 de noviembre de 2026.** La revisión histórica abarcó los 154 procedimientos del SQL modularizado. Se convirtieron las lecturas con bloqueo de edición y baja de productos a cursores explícitos. En esa revisión se conservaron los 154 nombres y firmas, incluidos los 42 mantenedores de la rúbrica y las 98 salidas `OUT SYS_REFCURSOR`. [Retiro posterior de cinco procedimientos](RETIRO_5_PROCEDIMIENTOS.md) · [Inventario vigente](inventario_procedimientos.csv)
 
 ## Base de trabajo y alcance
 
@@ -88,4 +88,4 @@ En cada uno de los 15 casos se comprobó la ausencia de llamadas ejecutables en 
 Las instalaciones y las pruebas de escritura se realizaron en un esquema QA temporal, eliminado al terminar. El esquema operativo `SABOTINO` se consultó en modo de lectura para el contraste de fuentes y dependencias. La instalación desde cero y la incremental ya incluyen el módulo modificado en el orden correcto. Las recomendaciones de retiro quedan pendientes de aprobación.
 
 - Se refactorizaron dos cuerpos PL/SQL en el [módulo Productos y diagnóstico](migracion-procedimientos/04_productos_y_diagnostico.sql).
-- Se incorporó el [inventario de los 154 procedimientos](inventario_procedimientos.csv) y se enlazó esta auditoría en la [guía Oracle del proyecto](README.md).
+- Se incorporó el inventario por procedimiento y se enlazó esta auditoría en la guía Oracle del proyecto. [Inventario vigente](inventario_procedimientos.csv) · [Guía de Oracle](README.md)

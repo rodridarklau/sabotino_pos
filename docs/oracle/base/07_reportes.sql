@@ -2,25 +2,6 @@
 
 -- Consultas del catálogo operativo y reportes de gestión.
 
--- Catálogo para la venta sin información de costos.
-/* Lo que hace el siguiente procedimiento es listar los productos activos con su
-nombre, categoria, unidad, precio y stock. Lo puede usar un usuario habilitado
-y no muestra costos de produccion. */
-CREATE OR REPLACE PROCEDURE SAB_L_CATALOGO_VENTA(p_actor_id NUMBER,p_resultado OUT SYS_REFCURSOR) IS
-BEGIN
-    SAB_VALIDAR_USUARIO(p_actor_id);
-    OPEN p_resultado FOR
-        SELECT p.id_producto,p.codigo_barra,p.nombre_producto,
-               cat.nombre_categoria,u.codigo_unidad,p.precio_venta_actual,
-               p.stock_actual,p.stock_critico
-        FROM PRODUCTO p
-        JOIN CATEGORIA_PRODUCTO cat ON cat.id_categoria=p.id_categoria
-        JOIN UNIDAD_MEDIDA u ON u.id_unidad=p.id_unidad
-        WHERE p.estado_producto='S'
-        ORDER BY cat.nombre_categoria,p.nombre_producto;
-END;
-/
-
 -- Ventas agrupadas por hora para un período.
 /* Lo que hace el siguiente procedimiento es agrupar las ventas confirmadas por
 hora del dia dentro de un rango de fechas y calcular cantidad e ingresos

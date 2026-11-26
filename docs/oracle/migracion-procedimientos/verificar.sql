@@ -1,6 +1,6 @@
 -- Manifiesto de la migraci?n. Verificar en el esquema de la aplicaci?n.
 SET SERVEROUTPUT ON
-WHENEVER SQLERROR EXIT FAILURE
+WHENEVER SQLERROR EXIT FAILURE ROLLBACK
 
 DECLARE
   l_esperados SYS.ODCIVARCHAR2LIST := SYS.ODCIVARCHAR2LIST(
@@ -86,6 +86,9 @@ DECLARE
   );
   l_validos PLS_INTEGER := 0;
   l_invalidos_base PLS_INTEGER := 0;
+  l_total PLS_INTEGER;
+  l_total_api PLS_INTEGER;
+  l_retirados PLS_INTEGER;
 BEGIN
   FOR objeto IN (
     SELECT esperado.COLUMN_VALUE AS NOMBRE, NVL(o.STATUS, 'AUSENTE') AS ESTADO, 0 AS ES_BASE
@@ -123,6 +126,21 @@ BEGIN
   IF l_invalidos_base > 0 THEN
     RAISE_APPLICATION_ERROR(-20794, 'Procedimientos base inválidos: ' || l_invalidos_base);
   END IF;
+  SELECT COUNT(*), COUNT(CASE WHEN SUBSTR(OBJECT_NAME, 1, 8) = 'SAB_API_' THEN 1 END),
+    COUNT(CASE WHEN OBJECT_NAME IN (
+    'SAB_BUSCAR_CREDENCIALES', 'SAB_L_CATALOGO_VENTA', 'SAB_UI_L_RESUMEN_VENTA',
+    'SAB_UI_L_DETALLE_VENTA', 'SAB_UI_L_PAGOS_VENTA'
+  ) THEN 1 END)
+  INTO l_total, l_total_api, l_retirados
+  FROM USER_OBJECTS WHERE OBJECT_TYPE = 'PROCEDURE' AND SUBSTR(OBJECT_NAME, 1, 4) = 'SAB_';
+  IF l_retirados > 0 THEN
+    RAISE_APPLICATION_ERROR(-20797, 'Procedimientos retirados que siguen presentes: ' || l_retirados);
+  END IF;
+  IF l_total <> 149 OR l_total_api <> 79 THEN
+    RAISE_APPLICATION_ERROR(-20798, 'Procedimientos SABOTINO instalados: ' ||
+      (l_total - l_total_api) || ' de 70 base y ' || l_total_api || ' de 79 API');
+  END IF;
   DBMS_OUTPUT.PUT_LINE('Procedimientos de la API: 79 de 79 VALID.');
+  DBMS_OUTPUT.PUT_LINE('Total SABOTINO: 149 procedimientos VALID (70 base + 79 API).');
 END;
 /

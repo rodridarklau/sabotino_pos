@@ -166,33 +166,6 @@ EXCEPTION
 END;
 /
 
--- La autenticación y comparación de contraseñas se realiza en el servidor de la aplicación.
-/* Lo que hace el siguiente procedimiento es buscar un usuario por su nombre de
-acceso y entregar su ID, hash de contrasena, rol y estado mediante parametros
-OUT. El backend verifica la contrasena; este procedimiento solo consulta datos. */
-CREATE OR REPLACE PROCEDURE SAB_BUSCAR_CREDENCIALES(
-    p_username VARCHAR2, p_usuario_id OUT NUMBER,
-    p_hash OUT VARCHAR2, p_rol OUT VARCHAR2, p_habilitado OUT CHAR
-) IS
-    CURSOR c_login IS
-       SELECT u.id_usuario,u.password_hash,r.nombre_rol,
-              CASE WHEN u.estado_usuario='S' AND r.estado_activo='S' THEN 'S' ELSE 'N' END habilitado
-       FROM USUARIO u JOIN ROL_USUARIO r ON r.id_rol=u.id_rol
-       WHERE u.username=p_username;
-BEGIN
-    p_usuario_id:=NULL;
-    p_hash:=NULL;
-    p_rol:=NULL;
-    p_habilitado:='N';
-    FOR r IN c_login LOOP
-        p_usuario_id:=r.id_usuario;
-        p_hash:=r.password_hash;
-        p_rol:=r.nombre_rol;
-        p_habilitado:=r.habilitado;
-    END LOOP;
-END;
-/
-
 /* Registra el unico usuario DUENO inicial en una instalacion limpia.
 Si ya existe un DUENO creado, bloquea el registro para mantener el control de acceso. */
 CREATE OR REPLACE PROCEDURE SAB_REGISTRAR_DUENO_INICIAL(

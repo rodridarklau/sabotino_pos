@@ -17,9 +17,11 @@ async function preparar(conexion) {
   const identidad = await conexion.execute("SELECT USER, (SELECT COUNT(*) FROM USUARIO) FROM DUAL");
   assert.deepEqual(identidad.rows[0], [user, 0], "El esquema de prueba debe estar vacío");
   const compilacion = await conexion.execute(
-    "SELECT COUNT(*), COUNT(CASE WHEN STATUS = 'VALID' THEN 1 END) FROM USER_OBJECTS WHERE OBJECT_TYPE = 'PROCEDURE'"
+    "SELECT COUNT(*), COUNT(CASE WHEN STATUS = 'VALID' THEN 1 END), " +
+    "COUNT(CASE WHEN SUBSTR(OBJECT_NAME, 1, 8) = 'SAB_API_' THEN 1 END) " +
+    "FROM USER_OBJECTS WHERE OBJECT_TYPE = 'PROCEDURE'"
   );
-  assert.deepEqual(compilacion.rows, [[154, 154]], "Los 154 procedimientos deben estar instalados y válidos");
+  assert.deepEqual(compilacion.rows, [[149, 149, 79]], "Deben estar válidos los 149 procedimientos, incluidos los 79 de la API");
   const roles = await conexion.execute("SELECT NOMBRE_ROL FROM ROL_USUARIO ORDER BY NOMBRE_ROL");
   assert.deepEqual(roles.rows, [["DUENO"], ["VENDEDOR"]], "Instala el catálogo fijo de roles al preparar el esquema de prueba");
   const pagos = await conexion.execute("SELECT ID_METODO_PAGO, NOMBRE_METODO FROM METODO_PAGO ORDER BY ID_METODO_PAGO");

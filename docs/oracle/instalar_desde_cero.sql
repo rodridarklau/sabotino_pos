@@ -40,7 +40,7 @@ DECLARE
 BEGIN
   contar('TABLE', 21);
   contar('SEQUENCE', 21);
-  contar('PROCEDURE', 75);
+  contar('PROCEDURE', 70);
   contar('FUNCTION', 2);
   contar('TRIGGER', 8);
 
@@ -55,8 +55,9 @@ BEGIN
     END LOOP;
     RAISE_APPLICATION_ERROR(-20793, 'Objetos inválidos en el esquema base: ' || l_invalidos);
   END IF;
-  DBMS_OUTPUT.PUT_LINE('Base válida: 21 tablas, 21 secuencias, 75 procedimientos, 2 funciones y 8 triggers.');
+  DBMS_OUTPUT.PUT_LINE('Base válida: 21 tablas, 21 secuencias, 70 procedimientos, 2 funciones y 8 triggers.');
 END;
 /
 
 @@migracion-procedimientos/instalar_api.sql
+@@migracion-procedimientos/verificar.sql

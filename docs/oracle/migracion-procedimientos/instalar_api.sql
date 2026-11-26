@@ -8,5 +8,3 @@
 @@07_vendedores.sql
 @@08_inicio_e_imagenes.sql
 @@09_reportes.sql
-
-@@verificar.sql
